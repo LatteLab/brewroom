@@ -1,4 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# brewroom
+
+Latte Lab’s member app and internal tools — the working space behind MIT’s student-run coffee community.
+
+**Why brewroom?** It’s where things get made: the apps and tools that help the club run. Our companion repository, [cafe](https://github.com/LatteLab/cafe), is the public website: where people discover Latte Lab.
+
+Visit [app.lattelab.org](https://app.lattelab.org). This application is built with Next.js.
 
 ## Getting Started
 
