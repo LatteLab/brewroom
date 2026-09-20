@@ -1,10 +1,11 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { getEventById, getUserRegistration, getEventRegistrations, getRegistrationCount, hasEventAccess, getOutgoingInvite, getIncomingInvite, getWaitlistPosition } from '@/lib/db/event-queries';
+import { getEventById, getUserRegistration, getEventRegistrations, getRegistrationCount, hasEventAccess, getOutgoingInvite, getIncomingInvite, getWaitlistPosition, getEventPhotos } from '@/lib/db/event-queries';
 import { EventRegistrationButton } from '@/components/user/event-registration-button';
 import { PastEventStatusCard } from '@/components/user/past-event-status-card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { GuestListSection } from '@/components/user/guest-list-section';
+import { EventPhotoAlbum } from '@/components/user/event-photo-album';
 import { PlusOneSection } from '@/components/user/plus-one-section';
 import { Calendar, MapPin, Users, Lock, ShieldCheck } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -21,14 +22,15 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   const event = await getEventById(id);
   if (!event) notFound();
 
+  const registration = await getUserRegistration(session.user.id, id);
+
   // Access check for private events (admins bypass)
   if (event.visibility === 'private' && !session.user.isAdmin) {
     const access = await hasEventAccess(session.user.id, id);
-    if (!access) notFound();
+    if (!access && !registration) notFound();
   }
 
-  const [registration, registrations, confirmedCount] = await Promise.all([
-    getUserRegistration(session.user.id, id),
+  const [registrations, confirmedCount] = await Promise.all([
     getEventRegistrations(id),
     getRegistrationCount(id, ['registered', 'selected', 'checked_in']),
   ]);
@@ -72,7 +74,8 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   const spotsRemaining = Math.max(0, event.capacity - confirmedCount);
   const capacityPercent = Math.min(100, Math.round((confirmedCount / event.capacity) * 100));
   const isPastEvent = new Date(event.endDate ?? event.date) < new Date()
-    || event.status === 'closed' || event.status === 'completed';
+    || event.status === 'completed' || event.status === 'cancelled';
+  const photos = isPastEvent ? await getEventPhotos(id) : [];
 
   // Get confirmed attendees for guest list
   const attendees = registrations.filter(r =>
@@ -85,7 +88,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className={`mx-auto max-w-4xl px-4 py-8 ${!isPastEvent ? 'pb-40 md:pb-8' : ''}`}>
+      <div className="mx-auto max-w-4xl px-4 py-8">
           <div className="grid gap-8 md:grid-cols-[1fr_1.2fr]">
             {/* Left: Cover image */}
             <div>
@@ -147,7 +150,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                       <FormattedTime date={event.date} format="time" />
                       {event.endDate && (
                         <>
-                          {' — '}
+                          {' - '}
                           <FormattedTime date={event.endDate} format="time" />
                         </>
                       )}
@@ -179,12 +182,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                 </div>
               </div>
 
-              {/* Registration container — hidden on mobile when sticky CTA is shown */}
+              {/* Registration container - hidden on mobile when sticky CTA is shown */}
               {isPastEvent ? (
                 <PastEventStatusCard
                   registrationStatus={registration?.status ?? null}
                   userName={session.user.name || ''}
                   userImage={session.user.image || null}
+                  isCancelled={event.status === 'cancelled'}
                 />
               ) : (
                 <div className="hidden md:block rounded-xl border p-5 space-y-4">
@@ -246,21 +250,31 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                 />
               )}
 
-              {/* Guest list */}
-              <GuestListSection
-                attendees={isConfirmedAttendee
-                  ? attendees
-                  : attendees.map(a => ({ user: { id: a.user.id, name: null, email: null, image: a.user.image } }))
-                }
-                canViewNames={isConfirmedAttendee}
-              />
+              {isPastEvent && photos.length > 0 && (
+                <EventPhotoAlbum photos={photos} />
+              )}
+
+              {/* Guest list - hidden from non-confirmed users when admin disables the toggle */}
+              {(isConfirmedAttendee || event.showAttendeesPreRegistration) && (
+                <GuestListSection
+                  attendees={isConfirmedAttendee
+                    ? attendees
+                    : attendees.map(a => ({ user: { id: a.user.id, name: null, email: null, image: a.user.image } }))
+                  }
+                  canViewNames={isConfirmedAttendee}
+                />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Mobile sticky CTA */}
+        {/* Mobile CTA lives in normal flow and uses sticky positioning, so variable +1/waitlist
+            states reserve their own height instead of covering the bottom of the page. */}
         {!isPastEvent && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/80 p-4 backdrop-blur-lg md:hidden space-y-2">
+          <div
+            className="sticky bottom-0 z-40 mx-auto max-w-4xl border-t bg-background/90 px-4 pt-4 backdrop-blur-lg md:hidden space-y-2 shadow-[0_-12px_28px_-20px_rgba(0,0,0,0.45)]"
+            style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+          >
             <EventRegistrationButton
               event={event}
               registration={registration}

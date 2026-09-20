@@ -12,6 +12,7 @@ const statusColors: Record<string, string> = {
   open: 'bg-green-500/10 text-green-500 border-green-500/20',
   closed: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
   completed: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+  cancelled: 'bg-red-500/10 text-red-500 border-red-500/20',
 };
 
 interface EventWithCount {
@@ -45,7 +46,7 @@ function formatTimeRange(date: Date, endDate: Date | null): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-  return `${dateStr}, ${startTime} – ${endTime}`;
+  return `${dateStr}, ${startTime} - ${endTime}`;
 }
 
 const filterTabs = [
@@ -143,7 +144,7 @@ export function AdminEventList({ events }: AdminEventListProps) {
                   <p className="text-sm font-medium truncate">{event.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatTimeRange(event.date, event.endDate)}
-                    {event.location && ` · ${event.location}`}
+                    {event.location && ` - ${event.location}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-4">

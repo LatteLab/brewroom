@@ -21,6 +21,15 @@ pnpm db:push      # Push schema to database
 pnpm db:studio    # Open Drizzle Studio
 ```
 
+## Current Review Notes
+
+- Event photos + mailing v1 live in the review branch as implementation, not standalone plan docs.
+- Keep `scripts/migrate-mailing-system-v1.sql` as the canonical mailing/photo deployment migration for this review branch.
+- Resend setup is one-domain only: `lattelab.org` handles outbound and inbound. Replies use `reply+<id>@lattelab.org`.
+- Required production env additions: `EMAIL_FROM`, `EMAIL_FROM_AUTOMATED`, `EMAIL_REPLY_DOMAIN=lattelab.org`, `INBOUND_FORWARD_TO=lattelab-exec@mit.edu`, `INBOUND_EMAIL_WEBHOOK_SECRET`, and `CRON_SECRET`.
+- Vercel is on Hobby, so scheduled draining/reminders should use QStash or manual authenticated calls to `/api/cron/email-outbox` and `/api/cron/event-reminder-generator`.
+- Do not remove implemented UI or server actions during cleanup. Cleanup should target duplicate docs, stale plans, or behavior-preserving code consolidation only.
+
 ## Project Structure
 
 ```

@@ -4,7 +4,7 @@ import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
 import { Resend } from 'resend';
 import { db } from '@/lib/db';
-import { emailRecipients as emailRecipientsTable } from '@/lib/db/schema';
+import { emailRecipients as emailRecipientsTable, emailBlasts as emailBlastsTable } from '@/lib/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import {
   createEmailBlast,
@@ -28,6 +28,11 @@ import type { AudienceFilter } from '@/lib/types/email';
 import type { EmailAudienceType, EmailRecipientStatus } from '@/lib/db/schema';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Email blasts intentionally remain on the existing campaign pipeline for v1:
+// one blast row plus per-recipient delivery rows. The transactional outbox owns
+// one-to-one automated mail. Moving blasts into the outbox is a v2 migration, not
+// part of this deployment cleanup.
 
 // ============================================================================
 // Blast CRUD Actions
@@ -101,8 +106,18 @@ export async function sendEmailBlastAction(blastId: string) {
     throw new Error('Blast already sent');
   }
 
-  // Mark as sending
-  await updateEmailBlast(blastId, { status: 'sending' });
+  const replyDomain = process.env.EMAIL_REPLY_DOMAIN || 'lattelab.org';
+  const replyTo = `reply+blast-${blastId}@${replyDomain}`;
+  const claimed = await db.update(emailBlastsTable)
+    .set({ status: 'sending', updatedAt: new Date() })
+    .where(and(
+      eq(emailBlastsTable.id, blastId),
+      inArray(emailBlastsTable.status, ['draft', 'failed']),
+    ))
+    .returning({ id: emailBlastsTable.id });
+  if (claimed.length === 0) {
+    throw new Error('Blast already sent or currently sending');
+  }
 
   try {
     const filters: AudienceFilter = JSON.parse(blast.audienceFilters);
@@ -136,7 +151,9 @@ export async function sendEmailBlastAction(blastId: string) {
 
     // Send in chunks of 100
     const CHUNK_SIZE = 100;
+    const attemptedRecipients = validRecipients.length;
     let totalSent = 0;
+    let totalFailed = 0;
 
     for (let i = 0; i < validRecipients.length; i += CHUNK_SIZE) {
       const chunk = validRecipients.slice(i, i + CHUNK_SIZE);
@@ -152,8 +169,9 @@ export async function sendEmailBlastAction(blastId: string) {
           });
 
           return {
-            from: process.env.EMAIL_FROM || 'Latte Lab <noreply@lattelab.mit.edu>',
+            from: process.env.EMAIL_FROM || 'Latte Lab <noreply@lattelab.org>',
             to: recipient.email!,
+            replyTo,
             subject: blast.subject,
             html: renderBlastEmail(resolvedHtml),
           };
@@ -163,7 +181,7 @@ export async function sendEmailBlastAction(blastId: string) {
         if (batchError) throw batchError;
 
         // Update recipient rows with Resend email IDs
-        // batchResult is { data: { id: string }[] } — double-nested
+        // batchResult is { data: { id: string }[] } - double-nested
         if (batchResult?.data) {
           for (let j = 0; j < batchResult.data.length; j++) {
             const recipientEmail = chunk[j].email;
@@ -194,14 +212,21 @@ export async function sendEmailBlastAction(blastId: string) {
               inArray(emailRecipientsTable.email, failedEmails),
             ),
           );
+        totalFailed += chunk.length;
       }
     }
 
-    // Mark blast as sent
+    // Reflect actual outcome in blast status. Previously this always wrote 'sent', so blasts
+    // where every chunk failed showed up as sent in the admin list - confusing during the
+    // domain-not-verified window earlier in deployment.
+    const finalStatus =
+      totalSent > 0 ? 'sent'
+      : totalFailed > 0 ? 'failed'
+      : 'sent'; // empty audience already handled above
     await updateEmailBlast(blastId, {
-      status: 'sent',
+      status: finalStatus,
       sentAt: new Date(),
-      totalRecipients: totalSent,
+      totalRecipients: attemptedRecipients,
     });
   } catch (error) {
     // If the whole operation fails (not a chunk failure), mark as failed
@@ -239,8 +264,9 @@ export async function sendPreviewEmailAction(blastId: string) {
   });
 
   await resend.emails.send({
-    from: process.env.EMAIL_FROM || 'Latte Lab <noreply@lattelab.mit.edu>',
+    from: process.env.EMAIL_FROM || 'Latte Lab <noreply@lattelab.org>',
     to: session.user.email!,
+    replyTo: process.env.EMAIL_REPLY_TO || 'exec@lattelab.org',
     subject: `[PREVIEW] ${blast.subject}`,
     html: renderBlastEmail(resolvedHtml),
   });

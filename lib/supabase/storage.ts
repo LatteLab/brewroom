@@ -1,41 +1,23 @@
 import { supabase } from './client';
-
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_COVER_SIZE = 5 * 1024 * 1024; // 5MB
-
-function validateImageMagicBytes(buf: Buffer): void {
-  const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8;
-  const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
-  const isWebp = buf.length >= 12 && buf.subarray(8, 12).toString('ascii') === 'WEBP';
-  const isGif = buf.length >= 6 && (
-    buf.subarray(0, 6).toString('ascii') === 'GIF87a' ||
-    buf.subarray(0, 6).toString('ascii') === 'GIF89a'
-  );
-  if (!isJpeg && !isPng && !isWebp && !isGif) {
-    throw new Error('File content does not match a supported image format');
-  }
-}
+import {
+  ALLOWED_IMAGE_TYPES,
+  EVENT_COVER_MAX_SIZE,
+  imageExtensionForType,
+  validateImageMagicBytes,
+} from './image-utils';
 
 export async function uploadEventCover(file: File): Promise<string> {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
     throw new Error('Only JPEG, PNG, WebP, and GIF images are allowed');
   }
-  if (file.size > MAX_COVER_SIZE) {
+  if (file.size > EVENT_COVER_MAX_SIZE) {
     throw new Error('Image must be under 5MB');
   }
 
-  // Validate actual file bytes — file.type is browser-supplied and can be spoofed
-  const buffer = Buffer.from(await file.arrayBuffer());
-  validateImageMagicBytes(buffer);
+  // Validate actual file bytes; file.type is browser-supplied and can be spoofed.
+  validateImageMagicBytes(new Uint8Array(await file.arrayBuffer()));
 
-  const extMap: Record<string, string> = {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/gif': 'gif',
-  };
-  const ext = extMap[file.type] ?? 'jpg';
-  const fileName = `${crypto.randomUUID()}.${ext}`;
+  const fileName = `${crypto.randomUUID()}.${imageExtensionForType(file.type)}`;
 
   const { error } = await supabase.storage
     .from('event-covers')
@@ -72,7 +54,7 @@ export async function uploadProfileImage(userId: string, blob: Blob): Promise<st
     .from('profile-images')
     .getPublicUrl(fileName);
 
-  // Append cache-buster so the browser doesn't serve stale image
+  // Append cache-buster so the browser doesn't serve stale image.
   return `${data.publicUrl}?t=${Date.now()}`;
 }
 

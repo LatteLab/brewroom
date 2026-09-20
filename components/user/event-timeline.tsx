@@ -8,6 +8,7 @@ interface EventTimelineProps {
     event: Event;
     registrationStatus: string | null;
     registeredCount: number;
+    photoCount?: number;
   }>;
 }
 
@@ -75,6 +76,7 @@ export function EventTimeline({ events }: EventTimelineProps) {
                   event={item.event}
                   registrationStatus={item.registrationStatus}
                   registeredCount={item.registeredCount}
+                  photoCount={item.photoCount}
                 />
               ))}
             </div>
@@ -112,6 +114,7 @@ export function EventTimeline({ events }: EventTimelineProps) {
                   event={item.event}
                   registrationStatus={item.registrationStatus}
                   registeredCount={item.registeredCount}
+                  photoCount={item.photoCount}
                 />
               ))}
             </div>

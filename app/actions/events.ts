@@ -40,10 +40,43 @@ import {
   deletePlusOneInvite,
   createEventEditLogEntry,
   getEventEditLog as dbGetEventEditLog,
+  getWaitlistPosition,
+  seedDefaultReminderRule,
+  getEventPhotos as dbGetEventPhotos,
+  getEventPhotoById,
+  createEventPhotos,
+  deleteEventPhoto as dbDeleteEventPhoto,
+  updateEventPhotoCaption as dbUpdateEventPhotoCaption,
 } from '@/lib/db/event-queries';
 import { getUserById } from '@/lib/db/queries';
 import { createEventSchema, updateEventSchema } from '@/lib/validations/events';
 import { weightedSelectWithSeats, buildLotteryPool } from '@/lib/utils/lottery';
+import {
+  createEventPhotoUploadTickets,
+  deleteEventPhotoObject,
+  getEventPhotoPublicUrl,
+  type UploadTicket,
+  type UploadTicketRequest,
+} from '@/lib/supabase/server-storage';
+import { sendTransactional } from '@/lib/emails/send';
+import { buildEventSummary } from '@/lib/emails/templates';
+import {
+  notifyEventCancelledRegistrants,
+  notifyEventChangedRegistrants,
+  notifyLotteryResults,
+  notifyPhotoAlbumAvailable,
+  notifyRegistrationApproved,
+  notifyRegistrationRejected,
+  notifyWaitlistPromoted,
+  resendRegistrationConfirmations,
+} from '@/lib/emails/event-notifications';
+import type { Event } from '@/lib/db/schema';
+
+function assertLotteryEventCanMutate(event: Event) {
+  if (event.status === 'completed' || event.status === 'cancelled') {
+    throw new Error('Lottery cannot be changed for completed or cancelled events');
+  }
+}
 
 export async function createEventAction(formData: FormData) {
   const session = await auth();
@@ -56,6 +89,7 @@ export async function createEventAction(formData: FormData) {
     requireApproval: raw.requireApproval === 'true',
     waitlistEnabled: raw.waitlistEnabled === 'true',
     plusOneEnabled: raw.plusOneEnabled === 'true',
+    showAttendeesPreRegistration: raw.showAttendeesPreRegistration !== 'false',
   });
   const questions = raw.questions ? JSON.parse(raw.questions as string) : null;
   const timezone = raw.timezone as string;
@@ -78,6 +112,9 @@ export async function createEventAction(formData: FormData) {
     createdBy: session.user.id,
   });
 
+  // Seed the default 24h reminder. Admins can disable from the event form later.
+  await seedDefaultReminderRule(event.id);
+
   revalidatePath('/admin/events');
   revalidatePath('/user/events');
   return event;
@@ -93,6 +130,7 @@ export async function updateEventAction(eventId: string, formData: FormData) {
     capacity: raw.capacity ? Number(raw.capacity) : undefined,
     waitlistEnabled: raw.waitlistEnabled !== undefined ? raw.waitlistEnabled === 'true' : undefined,
     plusOneEnabled: raw.plusOneEnabled !== undefined ? raw.plusOneEnabled === 'true' : undefined,
+    showAttendeesPreRegistration: raw.showAttendeesPreRegistration !== undefined ? raw.showAttendeesPreRegistration !== 'false' : undefined,
   });
   const questions = raw.questions !== undefined ? (raw.questions ? JSON.parse(raw.questions as string) : null) : undefined;
   const timezone = raw.timezone as string | undefined;
@@ -121,7 +159,7 @@ export async function updateEventAction(eventId: string, formData: FormData) {
 
   // Log changed fields
   if (oldEvent) {
-    const trackedFields = ['name', 'description', 'date', 'endDate', 'location', 'capacity', 'visibility', 'status', 'requireApproval', 'waitlistEnabled', 'plusOneEnabled'] as const;
+    const trackedFields = ['name', 'description', 'date', 'endDate', 'location', 'capacity', 'visibility', 'status', 'requireApproval', 'waitlistEnabled', 'plusOneEnabled', 'showAttendeesPreRegistration'] as const;
     const changes: Record<string, { old: unknown; new: unknown }> = {};
     for (const field of trackedFields) {
       if (JSON.stringify(oldEvent[field]) !== JSON.stringify(event[field])) {
@@ -130,6 +168,24 @@ export async function updateEventAction(eventId: string, formData: FormData) {
     }
     if (Object.keys(changes).length > 0) {
       await createEventEditLogEntry({ eventId, changedBy: session.user.id, changes });
+    }
+
+    // Notify-on-change is opt-in: admin checks "Notify registrants" + at least one of the
+    // notify-worthy fields (date / endDate / location) actually changed.
+    const notifyRegistrants = raw.notifyRegistrants === 'true';
+    const notifyFields: (keyof typeof changes)[] = ['date', 'endDate', 'location'];
+    const notifyChanges = notifyFields.filter(f => changes[f]);
+    if (notifyRegistrants && notifyChanges.length > 0) {
+      const regs = await getEventRegistrations(eventId);
+      const confirmed = regs.filter(r =>
+        ['registered', 'selected', 'checked_in'].includes(r.registration.status) && r.user.email,
+      );
+      if (confirmed.length > 0) {
+        const changePayload = Object.fromEntries(
+          notifyChanges.map((field) => [field, changes[field]]),
+        ) as Partial<Record<keyof Event, { old: unknown; new: unknown }>>;
+        await notifyEventChangedRegistrants(event, confirmed, changePayload);
+      }
     }
   }
 
@@ -168,12 +224,15 @@ export async function duplicateEventAction(eventId: string) {
     waitlistEnabled: original.waitlistEnabled,
     plusOneEnabled: original.plusOneEnabled,
     requireApproval: original.requireApproval,
+    showAttendeesPreRegistration: original.showAttendeesPreRegistration,
     questions: original.questions,
     status: 'open',
     lotteryStatus: null,
     inviteCode,
     createdBy: session.user.id,
   });
+
+  await seedDefaultReminderRule(copy.id);
 
   revalidatePath('/admin/events');
   return copy;
@@ -201,7 +260,11 @@ export async function registerForEvent(eventId: string, questionnaireAnswers?: R
     ? questionnaireAnswers
     : null;
 
-  // Require approval — always pending_approval
+  const eventSummary = buildEventSummary(event);
+  const userName = session.user.name ?? null;
+  const recipient = { userId: session.user.id, email: session.user.email!, name: userName };
+
+  // Require approval - always pending_approval
   if (event.requireApproval) {
     const reg = await createRegistration({
       userId: session.user.id,
@@ -219,12 +282,20 @@ export async function registerForEvent(eventId: string, questionnaireAnswers?: R
       actorId: null,
       actorType: 'user',
     });
+    await sendTransactional({
+      template: 'registration_received',
+      recipient,
+      payload: { userName, event: eventSummary, requiresApproval: true },
+      idempotencyKey: `registration_received:${reg.id}`,
+      relatedEventId: eventId,
+      relatedRegistrationId: reg.id,
+    });
     revalidatePath(`/user/events/${eventId}`);
     revalidatePath(`/admin/events/${eventId}`);
     return;
   }
 
-  // FCFS registration — atomic to prevent over-capacity under concurrent load
+  // FCFS registration - atomic to prevent over-capacity under concurrent load
   const result = await createRegistrationWithCapacityCheck({
     userId: session.user.id,
     eventId,
@@ -245,6 +316,27 @@ export async function registerForEvent(eventId: string, questionnaireAnswers?: R
     actorId: null,
     actorType: 'user',
   });
+
+  if (result.wasWaitlisted) {
+    const position = await getWaitlistPosition(session.user.id, eventId);
+    await sendTransactional({
+      template: 'waitlist_joined',
+      recipient,
+      payload: { userName, event: eventSummary, position },
+      idempotencyKey: `waitlist_joined:${result.reg.id}`,
+      relatedEventId: eventId,
+      relatedRegistrationId: result.reg.id,
+    });
+  } else {
+    await sendTransactional({
+      template: 'registration_received',
+      recipient,
+      payload: { userName, event: eventSummary, requiresApproval: false },
+      idempotencyKey: `registration_received:${result.reg.id}`,
+      relatedEventId: eventId,
+      relatedRegistrationId: result.reg.id,
+    });
+  }
 
   revalidatePath(`/user/events/${eventId}`);
   revalidatePath(`/admin/events/${eventId}`);
@@ -267,7 +359,7 @@ async function promoteFromWaitlist(eventId: string) {
   // Build a set of waitlisted registration IDs for quick lookup
   const waitlistedRegIds = new Set(waitlisted.map(r => r.registration.id));
 
-  // Build a map: regId → partnerId (only for pairings where BOTH are waitlisted)
+  // Build a map: regId -> partnerId (only for pairings where BOTH are waitlisted)
   const bothWaitlistedPartnerMap = new Map<string, string>();
   for (const pairing of pairings) {
     const inviterWaiting = waitlistedRegIds.has(pairing.inviterRegistrationId);
@@ -288,7 +380,7 @@ async function promoteFromWaitlist(eventId: string) {
 
     const partnerId = bothWaitlistedPartnerMap.get(entry.registration.id);
     if (partnerId) {
-      // This person and their partner are both waiting — need 2 slots
+      // This person and their partner are both waiting - need 2 slots
       if (availableSlots >= 2) {
         const partnerEntry = waitlisted.find(r => r.registration.id === partnerId)!;
         await updateRegistration(entry.registration.id, { status: 'registered' });
@@ -301,9 +393,9 @@ async function promoteFromWaitlist(eventId: string) {
         promoted.add(partnerId);
         availableSlots -= 2;
       }
-      // else: only 1 slot but pair needs 2 → skip this pair
+      // else: only 1 slot but pair needs 2 -> skip this pair
     } else {
-      // Solo or partner not on waitlist — can take 1 slot
+      // Solo or partner not on waitlist - can take 1 slot
       await updateRegistration(entry.registration.id, { status: 'registered' });
       auditEntries.push({
         registrationId: entry.registration.id, eventId, userId: entry.user.id,
@@ -316,6 +408,11 @@ async function promoteFromWaitlist(eventId: string) {
 
   if (auditEntries.length > 0) {
     await createAuditLogEntries(auditEntries);
+  }
+
+  if (promoted.size > 0) {
+    const promotedRegs = waitlisted.filter(r => promoted.has(r.registration.id));
+    await notifyWaitlistPromoted(event, promotedRegs);
   }
 }
 
@@ -343,8 +440,8 @@ export async function cancelRegistration(eventId: string, scope: 'me' | 'both' =
       const allRegs = await getEventRegistrations(eventId);
       const partnerReg = allRegs.find(r => r.registration.id === partnerRegId);
       if (partnerReg) {
-        // Audit for partner — must be before deleteRegistration (cascade deletes it)
-        // Use null registrationId — the registration is about to be deleted
+        // Audit for partner - must be before deleteRegistration (cascade deletes it)
+        // Use null registrationId - the registration is about to be deleted
         // and cascade would remove the audit entry with it.
         await createAuditLogEntry({
           registrationId: null,
@@ -361,7 +458,7 @@ export async function cancelRegistration(eventId: string, scope: 'me' | 'both' =
     }
   }
 
-  // Audit own cancellation — use null registrationId so the entry survives
+  // Audit own cancellation - use null registrationId so the entry survives
   // cascade delete of the registration.
   await createAuditLogEntry({
     registrationId: null,
@@ -389,10 +486,11 @@ export async function runLotteryDraft(eventId: string) {
 
   const event = await getEventById(eventId);
   if (!event || !event.requireApproval) throw new Error('Lottery only available for approval-required events');
+  assertLotteryEventCanMutate(event);
 
   const isRerun = event.lotteryStatus === 'finalized';
 
-  // Atomically claim the draft slot — prevents two admins from running the lottery simultaneously.
+  // Atomically claim the draft slot - prevents two admins from running the lottery simultaneously.
   // claimLotteryDraftSlot does UPDATE ... WHERE lottery_status IS NULL OR 'finalized', which is atomic in PostgreSQL.
   const claimed = await claimLotteryDraftSlot(eventId);
   if (!claimed) throw new Error('A lottery draft is already in progress');
@@ -478,6 +576,7 @@ export async function removeDraftSelected(registrationId: string, eventId: strin
 
   const event = await getEventById(eventId);
   if (!event || event.lotteryStatus !== 'draft') throw new Error('No lottery draft in progress');
+  assertLotteryEventCanMutate(event);
 
   const regs = await getEventRegistrations(eventId);
   const reg = regs.find(r => r.registration.id === registrationId);
@@ -512,6 +611,7 @@ export async function promoteDraftRejected(registrationId: string, eventId: stri
 
   const event = await getEventById(eventId);
   if (!event || event.lotteryStatus !== 'draft') throw new Error('No lottery draft in progress');
+  assertLotteryEventCanMutate(event);
 
   const regs = await getEventRegistrations(eventId);
   const reg = regs.find(r => r.registration.id === registrationId);
@@ -561,6 +661,7 @@ export async function rerollLottery(eventId: string) {
 
   const event = await getEventById(eventId);
   if (!event || event.lotteryStatus !== 'draft') throw new Error('No lottery draft in progress');
+  assertLotteryEventCanMutate(event);
 
   const regs = await getEventRegistrations(eventId);
   const draftSelected = regs.filter(r => r.registration.status === 'draft_selected');
@@ -619,6 +720,7 @@ export async function finalizeLottery(eventId: string) {
 
   const event = await getEventById(eventId);
   if (!event || event.lotteryStatus !== 'draft') throw new Error('No lottery draft in progress');
+  assertLotteryEventCanMutate(event);
 
   const regs = await getEventRegistrations(eventId);
   const draftSelected = regs.filter(r => r.registration.status === 'draft_selected');
@@ -672,6 +774,8 @@ export async function finalizeLottery(eventId: string) {
 
   await dbUpdateEvent(eventId, { lotteryStatus: 'finalized' });
 
+  await notifyLotteryResults(event, draftSelected, draftRejected);
+
   revalidatePath(`/admin/events/${eventId}`);
   revalidatePath(`/user/events/${eventId}`);
 }
@@ -682,6 +786,7 @@ export async function discardLotteryDraft(eventId: string) {
 
   const event = await getEventById(eventId);
   if (!event || event.lotteryStatus !== 'draft') throw new Error('No lottery draft in progress');
+  assertLotteryEventCanMutate(event);
 
   const [regs, lotteryParticipants] = await Promise.all([
     getEventRegistrations(eventId),
@@ -716,6 +821,47 @@ export async function closeRegistration(eventId: string) {
   if (!event || event.status !== 'open') throw new Error('Event is not open');
 
   await dbUpdateEvent(eventId, { status: 'closed' });
+
+  revalidatePath(`/admin/events/${eventId}`);
+  revalidatePath('/admin/events');
+  revalidatePath(`/user/events/${eventId}`);
+  revalidatePath('/user/events');
+}
+
+/**
+ * Cancel an event. Sets status='cancelled', emails every non-rejected registrant.
+ * Idempotent per registration so re-cancelling is safe (e.g. admin slip).
+ */
+export async function cancelEventAction(eventId: string, reason?: string | null) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+  if (event.status === 'cancelled') return; // idempotent
+  if (event.status === 'completed') throw new Error('Cannot cancel a completed event');
+
+  // Snapshot registrants BEFORE the status flip - emails go out based on this list.
+  const regs = await getEventRegistrations(eventId);
+  const toNotify = regs.filter(r => r.registration.status !== 'rejected' && r.user.email);
+
+  // Reset lottery state if active. Without this, finalize/reroll still pass their `lotteryStatus`
+  // gate even after cancel, and admins could accidentally email "you got in" for a dead event.
+  if (event.lotteryStatus === 'draft') {
+    const draftEntrants = regs.filter(
+      r => r.registration.status === 'draft_selected' || r.registration.status === 'draft_rejected',
+    );
+    await Promise.all(
+      draftEntrants.map(r =>
+        updateRegistration(r.registration.id, { status: 'pending_approval', lotteryPriorityScore: null }),
+      ),
+    );
+    await dbUpdateEvent(eventId, { status: 'cancelled', lotteryStatus: null });
+  } else {
+    await dbUpdateEvent(eventId, { status: 'cancelled' });
+  }
+
+  await notifyEventCancelledRegistrants(event, toNotify, reason ?? null);
 
   revalidatePath(`/admin/events/${eventId}`);
   revalidatePath('/admin/events');
@@ -862,7 +1008,7 @@ export async function approveRegistration(registrationId: string, eventId: strin
       try {
         partnerReg = await getPendingRegistration(partnerRegId, eventId);
       } catch {
-        // Partner is not pending_approval — treat this registration as solo
+        // Partner is not pending_approval - treat this registration as solo
         partnerReg = null;
       }
     }
@@ -903,6 +1049,9 @@ export async function approveRegistration(registrationId: string, eventId: strin
       actorType: 'admin',
     });
   }
+
+  const recipients = [reg, ...(partnerReg ? [partnerReg] : [])];
+  await notifyRegistrationApproved(event, recipients);
 
   revalidatePath(`/admin/events/${eventId}`);
   revalidatePath(`/user/events/${eventId}`);
@@ -961,11 +1110,14 @@ export async function denyRegistration(registrationId: string, eventId: string) 
     });
   }
 
+  const recipients = [reg, ...(partnerReg ? [partnerReg] : [])];
+  await notifyRegistrationRejected(event, recipients);
+
   revalidatePath(`/admin/events/${eventId}`);
   revalidatePath(`/user/events/${eventId}`);
 }
 
-// `selected` excluded — lottery-only status set via finalizeLottery, not manual admin change
+// `selected` excluded - lottery-only status set via finalizeLottery, not manual admin change
 const ALLOWED_STATUS_CHANGES = ['registered', 'waitlisted', 'pending_approval', 'rejected', 'checked_in', 'no_show'] as const;
 
 export async function changeRegistrationStatus(
@@ -1146,11 +1298,28 @@ export async function invitePlusOne(eventId: string, inviteeUserId: string) {
   if (inviterIncoming) throw new Error('You already have an incoming +1 invite for this event');
   if (existingIncoming || inviteeOutgoing) throw new Error('This person already has an active +1 invite for this event');
 
-  await createPlusOneInvite({
+  const invite = await createPlusOneInvite({
     eventId,
     inviterRegistrationId: inviterReg.id,
     inviteeRegistrationId: inviteeReg.id,
   });
+
+  // Email the invitee - this is the primary out-of-band signal that an invite exists.
+  const [inviter, invitee] = await Promise.all([
+    getUserById(session.user.id),
+    getUserById(inviteeUserId),
+  ]);
+  if (invitee?.email) {
+    const eventSummary = buildEventSummary(event);
+    await sendTransactional({
+      template: 'plus_one_invite_received',
+      recipient: { userId: invitee.id, email: invitee.email, name: invitee.name },
+      payload: { inviteeName: invitee.name, inviterName: inviter?.name ?? null, event: eventSummary },
+      idempotencyKey: `plus_one_invite_received:${invite.id}`,
+      relatedEventId: eventId,
+      relatedRegistrationId: inviteeReg.id,
+    });
+  }
 
   revalidatePath(`/user/events/${eventId}`);
 }
@@ -1170,7 +1339,39 @@ export async function acceptPlusOneInvite(inviteId: string) {
   }
 
   await updatePlusOneInviteStatus(inviteId, 'accepted');
+
+  // Notify the original inviter that their invite was accepted.
+  await notifyInviterOfPlusOneResponse(invite.id, 'accepted');
+
   revalidatePath(`/user/events/${invite.eventId}`);
+}
+
+/**
+ * Look up the inviter for a +1 invite and send them a `plus_one_accepted` or `plus_one_declined`
+ * email. Failures are swallowed by sendTransactional.
+ */
+async function notifyInviterOfPlusOneResponse(inviteId: string, kind: 'accepted' | 'declined') {
+  const invite = await getPlusOneInviteById(inviteId);
+  if (!invite) return;
+  const event = await getEventById(invite.eventId);
+  if (!event) return;
+  const allRegs = await getEventRegistrations(invite.eventId);
+  const inviterReg = allRegs.find(r => r.registration.id === invite.inviterRegistrationId);
+  const inviteeReg = allRegs.find(r => r.registration.id === invite.inviteeRegistrationId);
+  if (!inviterReg?.user.email) return;
+  const eventSummary = buildEventSummary(event);
+  await sendTransactional({
+    template: kind === 'accepted' ? 'plus_one_accepted' : 'plus_one_declined',
+    recipient: { userId: inviterReg.user.id, email: inviterReg.user.email, name: inviterReg.user.name },
+    payload: {
+      inviterName: inviterReg.user.name,
+      inviteeName: inviteeReg?.user.name ?? null,
+      event: eventSummary,
+    },
+    idempotencyKey: `plus_one_${kind}:${invite.id}`,
+    relatedEventId: invite.eventId,
+    relatedRegistrationId: inviterReg.registration.id,
+  });
 }
 
 /** Decline a pending +1 invite (invitee only). */
@@ -1187,7 +1388,30 @@ export async function declinePlusOneInvite(inviteId: string) {
     throw new Error('You are not the recipient of this invite');
   }
 
+  // Capture inviter info BEFORE the delete cascades - the invite row goes away.
+  const event = await getEventById(invite.eventId);
+  const allRegs = await getEventRegistrations(invite.eventId);
+  const inviterReg = allRegs.find(r => r.registration.id === invite.inviterRegistrationId);
+  const inviteeRegRow = allRegs.find(r => r.registration.id === invite.inviteeRegistrationId);
+
   await deletePlusOneInvite(inviteId);
+
+  if (event && inviterReg?.user.email) {
+    const eventSummary = buildEventSummary(event);
+    await sendTransactional({
+      template: 'plus_one_declined',
+      recipient: { userId: inviterReg.user.id, email: inviterReg.user.email, name: inviterReg.user.name },
+      payload: {
+        inviterName: inviterReg.user.name,
+        inviteeName: inviteeRegRow?.user.name ?? null,
+        event: eventSummary,
+      },
+      idempotencyKey: `plus_one_declined:${invite.id}`,
+      relatedEventId: invite.eventId,
+      relatedRegistrationId: inviterReg.registration.id,
+    });
+  }
+
   revalidatePath(`/user/events/${invite.eventId}`);
 }
 
@@ -1205,8 +1429,58 @@ export async function cancelPlusOneInvite(inviteId: string) {
     throw new Error('You are not the sender of this invite');
   }
 
+  // Capture details BEFORE deletion. Only email the invitee if they were already notified of
+  // the original invite (look up outbox by idempotency key).
+  const event = await getEventById(invite.eventId);
+  const allRegs = await getEventRegistrations(invite.eventId);
+  const inviteeReg = allRegs.find(r => r.registration.id === invite.inviteeRegistrationId);
+  const inviterRegRow = allRegs.find(r => r.registration.id === invite.inviterRegistrationId);
+  const inviteWasSent = await wasInviteEmailSent(invite.id);
+
   await deletePlusOneInvite(inviteId);
+
+  if (event && inviteWasSent && inviteeReg?.user.email) {
+    const eventSummary = buildEventSummary(event);
+    await sendTransactional({
+      template: 'plus_one_cancelled',
+      recipient: { userId: inviteeReg.user.id, email: inviteeReg.user.email, name: inviteeReg.user.name },
+      payload: {
+        inviteeName: inviteeReg.user.name,
+        inviterName: inviterRegRow?.user.name ?? null,
+        event: eventSummary,
+      },
+      idempotencyKey: `plus_one_cancelled:${invite.id}`,
+      relatedEventId: invite.eventId,
+      relatedRegistrationId: inviteeReg.registration.id,
+    });
+  }
+
   revalidatePath(`/user/events/${invite.eventId}`);
+}
+
+/**
+ * Returns true if a `plus_one_invite_received` email was previously queued/sent for this invite.
+ * Used to gate the "cancelled" notification - we don't tell someone an invite was cancelled if
+ * they never knew it existed.
+ */
+async function wasInviteEmailSent(inviteId: string): Promise<boolean> {
+  const { db } = await import('@/lib/db');
+  const { emailOutbox } = await import('@/lib/db/schema');
+  const { eq, inArray, and } = await import('drizzle-orm');
+  // Include 'queued' and 'sending' so a fast cancel-after-invite still triggers the cancel
+  // notification - the queued invite email may be milliseconds from going out, and the
+  // invitee shouldn't get an "invited" email with no follow-up.
+  const rows = await db
+    .select({ id: emailOutbox.id })
+    .from(emailOutbox)
+    .where(
+      and(
+        eq(emailOutbox.idempotencyKey, `plus_one_invite_received:${inviteId}`),
+        inArray(emailOutbox.status, ['queued', 'sending', 'sent', 'delivered', 'bounced']),
+      )!,
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Dissolve an accepted +1 pairing (either party can do this). */
@@ -1232,6 +1506,25 @@ export async function getInvitableUsers(eventId: string) {
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
 
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+
+  if (event.status !== 'open') throw new Error('Event not available');
+  if (!event.plusOneEnabled) throw new Error('+1 guests are not enabled for this event');
+
+  // Private event access check (admins bypass - match the user-side detail page rule)
+  if (event.visibility === 'private' && !session.user.isAdmin) {
+    const access = await hasEventAccess(session.user.id, eventId);
+    if (!access) throw new Error('Event not found');
+  }
+
+  // Caller must be registered for this event before they can browse invitable users
+  const callerReg = await getUserRegistration(session.user.id, eventId);
+  if (!callerReg) throw new Error('You must be registered for this event to invite a +1');
+  if (!['registered', 'pending_approval', 'waitlisted'].includes(callerReg.status)) {
+    throw new Error('Your registration is not eligible to invite a +1');
+  }
+
   const [regs, allInvites] = await Promise.all([
     getEventRegistrations(eventId),
     getAllEventInvites(eventId),
@@ -1253,4 +1546,198 @@ export async function getInvitableUsers(eventId: string) {
       ['registered', 'pending_approval', 'waitlisted'].includes(r.registration.status)
     )
     .map(r => ({ id: r.user.id, name: r.user.name, image: r.user.image }));
+}
+
+// ============================================================================
+// Event Photo Actions
+// ============================================================================
+
+const PHOTO_CAPTION_MAX = 200;
+
+function eventHasEndedForAlbum(event: Event) {
+  return new Date(event.endDate ?? event.date) < new Date()
+    || event.status === 'completed'
+    || event.status === 'cancelled';
+}
+
+/**
+ * Phase 1 of the direct-upload flow: mint short-lived signed upload URLs so the browser PUTs
+ * each file straight to Supabase Storage. The service role key never leaves the server, but
+ * file bytes never enter the Vercel function (sidesteps the 1 MB Server Action and 4.5 MB
+ * Hobby body caps and lets the client parallelize uploads).
+ */
+export async function createEventPhotoUploadTicketsAction(
+  eventId: string,
+  files: UploadTicketRequest[],
+): Promise<UploadTicket[]> {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+
+  return createEventPhotoUploadTickets(eventId, files);
+}
+
+/**
+ * Phase 2: persist DB rows for the storage paths the client successfully uploaded. Tampering
+ * is bounded by the path prefix check - a client cannot point a row at someone else's path.
+ */
+export async function recordEventPhotosAction(
+  eventId: string,
+  photos: { storagePath: string; caption?: string | null }[],
+) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+
+  if (photos.length === 0) return [];
+
+  const prefix = `events/${eventId}/`;
+  const rows = photos.map((photo) => {
+    if (!photo.storagePath.startsWith(prefix)) {
+      throw new Error('Invalid storage path');
+    }
+    return {
+      eventId,
+      storagePath: photo.storagePath,
+      publicUrl: getEventPhotoPublicUrl(photo.storagePath),
+      caption: photo.caption?.trim() || null,
+      uploadedBy: session.user.id,
+    };
+  });
+
+  const created = await createEventPhotos(rows);
+
+  revalidatePath(`/admin/events/${eventId}`);
+  revalidatePath(`/user/events/${eventId}`);
+  return created;
+}
+
+export async function deleteEventPhotoAction(photoId: string) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const photo = await getEventPhotoById(photoId);
+  if (!photo) throw new Error('Photo not found');
+
+  // DB row first - an orphaned storage object is harmless, but a DB row pointing
+  // at a deleted file would render a broken image.
+  await dbDeleteEventPhoto(photoId);
+
+  // Best-effort storage delete; we don't fail the action if Supabase rejects.
+  try {
+    await deleteEventPhotoObject(photo.storagePath);
+  } catch (err) {
+    console.error('[deleteEventPhotoAction] storage cleanup failed:', err);
+  }
+
+  revalidatePath(`/admin/events/${photo.eventId}`);
+  revalidatePath(`/user/events/${photo.eventId}`);
+}
+
+export async function updateEventPhotoCaptionAction(photoId: string, caption: string) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const trimmed = caption.trim();
+  if (trimmed.length > PHOTO_CAPTION_MAX) {
+    throw new Error(`Caption must be ${PHOTO_CAPTION_MAX} characters or fewer`);
+  }
+
+  const photo = await getEventPhotoById(photoId);
+  if (!photo) throw new Error('Photo not found');
+
+  await dbUpdateEventPhotoCaption(photoId, trimmed || null);
+
+  revalidatePath(`/admin/events/${photo.eventId}`);
+  revalidatePath(`/user/events/${photo.eventId}`);
+}
+
+/**
+ * Returns photos for a user-facing view, with access enforced.
+ * Public events: any logged-in user.
+ * Private events: viewer must have event_access OR a registration of any status.
+ * Admins bypass.
+ */
+export async function getEventPhotosForViewer(eventId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+
+  if (!eventHasEndedForAlbum(event)) return [];
+
+  if (event.visibility === 'private' && !session.user.isAdmin) {
+    const [access, reg] = await Promise.all([
+      hasEventAccess(session.user.id, eventId),
+      getUserRegistration(session.user.id, eventId),
+    ]);
+    if (!access && !reg) throw new Error('Event not found');
+  }
+
+  return dbGetEventPhotos(eventId);
+}
+
+// ============================================================================
+// Photo album notifications
+// ============================================================================
+
+/**
+ * Admin-triggered notification: "photos are up" email to every confirmed attendee
+ * (registered/selected/checked_in - excluding no_show). One-shot per event via the
+ * event-scoped idempotency key on the outbox row.
+ */
+export async function notifyPhotoAlbumAction(eventId: string) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+  if (!eventHasEndedForAlbum(event)) {
+    throw new Error('Photo notifications can only be sent after the event has ended');
+  }
+
+  const photos = await dbGetEventPhotos(eventId);
+  if (photos.length === 0) throw new Error('No photos uploaded for this event yet');
+
+  const regs = await getEventRegistrations(eventId);
+  const recipients = regs.filter(
+    r =>
+      ['registered', 'selected', 'checked_in'].includes(r.registration.status) &&
+      r.user.email,
+  );
+  if (recipients.length === 0) throw new Error('No confirmed attendees to notify');
+
+  const result = await notifyPhotoAlbumAvailable(event, recipients, photos.length);
+
+  revalidatePath(`/admin/events/${eventId}`);
+  return result;
+}
+
+/**
+ * Admin "Re-send confirmation emails" - fires `registration_approved` (or equivalent) for
+ * every confirmed registrant. Replaces the legacy mailto fallback in send-invite-button.tsx.
+ * Idempotency key includes a timestamp so admins can re-send if they really mean it.
+ */
+export async function resendConfirmationEmailsAction(eventId: string) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) throw new Error('Unauthorized');
+
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+
+  const regs = await getEventRegistrations(eventId);
+  const confirmed = regs.filter(
+    r =>
+      ['registered', 'selected', 'checked_in'].includes(r.registration.status) &&
+      r.user.email,
+  );
+  if (confirmed.length === 0) throw new Error('No confirmed registrants to email');
+
+  const result = await resendRegistrationConfirmations(event, confirmed);
+  return { queued: result.newlySent };
 }

@@ -31,9 +31,6 @@ export default async function AdminEmailPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 py-6">
-          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            This feature is a work in progress. Resend API requires a verified domain we own before emails can be sent to recipients. This must be configured before finalizing this feature.
-          </div>
           <EmailBlastList blasts={blasts} />
         </div>
       </div>

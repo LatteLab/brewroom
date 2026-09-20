@@ -9,12 +9,24 @@ import { MergeFieldDropdown } from "@/components/admin/events/merge-field-dropdo
 import {
   saveEmailBlastAction,
   getEmailBlastDetailAction,
-  getAudienceEmailsAction,
+  sendEmailBlastAction,
+  sendPreviewEmailAction,
+  getAudienceCountAction,
 } from "@/app/actions/email";
 import { toast } from "sonner";
-import { Save, Loader2, Mail } from "lucide-react";
+import { Save, Loader2, Send, Eye } from "lucide-react";
 import type { AudienceFilter } from "@/lib/types/email";
-import { stripHtml } from "@/lib/utils";
+import { useRouter } from "next/navigation";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface EmailComposerProps {
   initialAudienceType?: string;
@@ -49,6 +61,8 @@ export function EmailComposer({
   // Track initial editor content (set once when loading a draft)
   const [initialEditorContent, setInitialEditorContent] = useState("");
   const [draftLoading, setDraftLoading] = useState(!!initialBlastId);
+  const router = useRouter();
+  const [confirmSend, setConfirmSend] = useState<{ count: number } | null>(null);
 
   // Load existing draft when editing
   useEffect(() => {
@@ -118,37 +132,70 @@ export function EmailComposer({
     });
   };
 
-  const handleOpenInOutlook = () => {
+  const handleSendPreview = () => {
     if (!subject.trim() || !bodyHtml.trim()) {
       toast.error("Subject and body are required");
       return;
     }
-
     startTransition(async () => {
       try {
-        const [saved, emails] = await Promise.all([
-          saveEmailBlastAction({
-            id: blastId || undefined,
-            subject,
-            bodyTemplate: bodyHtml,
-            audienceType: audienceFilter.type,
-            audienceFilters: audienceFilter,
-          }),
-          getAudienceEmailsAction(audienceFilter),
-        ]);
+        // Save the latest draft first so the server-side render uses current state.
+        const saved = await saveEmailBlastAction({
+          id: blastId || undefined,
+          subject,
+          bodyTemplate: bodyHtml,
+          audienceType: audienceFilter.type,
+          audienceFilters: audienceFilter,
+        });
+        setBlastId(saved.id);
+        await sendPreviewEmailAction(saved.id);
+        toast.success("Preview sent - check your inbox");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to send preview");
+      }
+    });
+  };
+
+  const handleSend = () => {
+    if (!subject.trim() || !bodyHtml.trim()) {
+      toast.error("Subject and body are required");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const saved = await saveEmailBlastAction({
+          id: blastId || undefined,
+          subject,
+          bodyTemplate: bodyHtml,
+          audienceType: audienceFilter.type,
+          audienceFilters: audienceFilter,
+        });
         setBlastId(saved.id);
 
-        const url =
-          `mailto:lattelab-exec@mit.edu` +
-          `?subject=${encodeURIComponent(subject)}` +
-          `&cc=${encodeURIComponent(emails.join(','))}` +
-          `&body=${encodeURIComponent(stripHtml(bodyHtml))}`;
-
-        window.location.href = url;
+        const audienceCount = await getAudienceCountAction(audienceFilter);
+        if (audienceCount === 0) {
+          toast.error("No recipients in audience");
+          return;
+        }
+        // Open the confirmation dialog - actual send happens in confirmSendDispatch.
+        setConfirmSend({ count: audienceCount });
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Failed to open Outlook"
-        );
+        toast.error(error instanceof Error ? error.message : "Failed to send");
+      }
+    });
+  };
+
+  const confirmSendDispatch = () => {
+    const ctx = confirmSend;
+    setConfirmSend(null);
+    if (!ctx || !blastId) return;
+    startTransition(async () => {
+      try {
+        await sendEmailBlastAction(blastId);
+        toast.success(`Sent to ${ctx.count} recipients`);
+        router.push(`/admin/email/${blastId}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to send");
       }
     });
   };
@@ -214,18 +261,48 @@ export function EmailComposer({
         </Button>
 
         <Button
+          variant="outline"
           size="sm"
-          onClick={handleOpenInOutlook}
+          onClick={handleSendPreview}
           disabled={isPending}
         >
           {isPending ? (
             <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
           ) : (
-            <Mail className="h-4 w-4 mr-1.5" />
+            <Eye className="h-4 w-4 mr-1.5" />
+          )}
+          Preview
+        </Button>
+
+        <Button
+          size="sm"
+          onClick={handleSend}
+          disabled={isPending}
+        >
+          {isPending ? (
+            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4 mr-1.5" />
           )}
           Send
         </Button>
       </div>
+
+      <AlertDialog open={!!confirmSend} onOpenChange={(open) => !open && setConfirmSend(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send to {confirmSend?.count ?? 0} recipients?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{subject}&rdquo; will be delivered to {confirmSend?.count ?? 0} member
+              {confirmSend?.count === 1 ? '' : 's'} via Resend. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSendDispatch}>Send now</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

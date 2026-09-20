@@ -1,77 +1,67 @@
 'use client';
 
+import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
-import { Mail } from 'lucide-react';
+import { Mail, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { resendConfirmationEmailsAction } from '@/app/actions/events';
 import type { Event } from '@/lib/db/schema';
-import { stripHtml } from '@/lib/utils';
 
 interface Props {
   event: Event;
   emails: string[];
 }
 
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
+/**
+ * Re-send confirmation emails to every confirmed registrant. Replaces the original mailto:
+ * Outlook fallback now that transactional emails fire automatically. Useful as an admin escape
+ * hatch when the auto-trigger criteria didn't fire (e.g., an event detail edit that didn't tick
+ * "Notify registrants").
+ */
 export function SendInviteButton({ event, emails }: Props) {
-  const disabled = emails.length === 0;
+  const [isPending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+
+  const disabled = emails.length === 0 || isPending;
 
   const handleClick = () => {
-    const subject = `You're going to ${event.name}!`;
-
-    const lines: string[] = [
-      'Hi everyone,',
-      '',
-      `You've been confirmed for ${event.name}.`,
-      '',
-      `Date: ${formatDate(event.date)}`,
-    ];
-
-    if (event.endDate) {
-      lines.push(`End: ${formatDate(event.endDate)}`);
+    if (!confirming) {
+      setConfirming(true);
+      // Auto-reset after 4s if not clicked again
+      setTimeout(() => setConfirming(false), 4000);
+      return;
     }
-    if (event.location) {
-      lines.push(`Location: ${event.location}`);
-    }
-    if (event.description) {
-      const plain = stripHtml(event.description);
-      if (plain) {
-        lines.push('', plain);
+    setConfirming(false);
+    startTransition(async () => {
+      try {
+        const result = await resendConfirmationEmailsAction(event.id);
+        toast.success(`Queued ${result.queued} confirmation email${result.queued === 1 ? '' : 's'}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to send');
       }
-    }
-
-    lines.push('', 'See you there!', 'Latte Lab');
-
-    const body = lines.join('\r\n');
-    const cc = emails.join(',');
-
-    const url =
-      `mailto:lattelab-exec@mit.edu` +
-      `?subject=${encodeURIComponent(subject)}` +
-      `&cc=${encodeURIComponent(cc)}` +
-      `&body=${encodeURIComponent(body)}`;
-
-    window.location.href = url;
+    });
   };
 
   return (
     <Button
-      variant="outline"
+      variant={confirming ? 'destructive' : 'outline'}
       size="sm"
       onClick={handleClick}
       disabled={disabled}
-      title={disabled ? 'No confirmed registrations yet' : undefined}
+      title={
+        emails.length === 0
+          ? 'No confirmed registrations yet'
+          : confirming
+          ? 'Click again to confirm - sends to every confirmed registrant'
+          : `Re-send confirmation email to all ${emails.length} confirmed registrants`
+      }
     >
-      <Mail className="h-3.5 w-3.5 mr-1.5" />
-      Send Invite Emails{emails.length > 0 ? ` (${emails.length})` : ''}
+      {isPending ? (
+        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+      ) : (
+        <Mail className="h-3.5 w-3.5 mr-1.5" />
+      )}
+      {confirming ? `Click again to send to ${emails.length}` : `Re-send confirmations${emails.length > 0 ? ` (${emails.length})` : ''}`}
     </Button>
   );
 }

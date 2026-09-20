@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Users, LogOut, Settings, Calendar, ArrowRightLeft, Mail } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Settings, Calendar, ArrowRightLeft, Mail, FileText, Inbox } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -32,6 +32,16 @@ const navItems = [
     title: "Email",
     url: "/admin/email",
     icon: Mail,
+  },
+  {
+    title: "Email Log",
+    url: "/admin/email/log",
+    icon: FileText,
+  },
+  {
+    title: "Inbox",
+    url: "/admin/email/inbox",
+    icon: Inbox,
   },
   {
     title: "Users",

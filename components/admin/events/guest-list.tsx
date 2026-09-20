@@ -80,7 +80,7 @@ export function GuestList({
 
   const hasDraft = event.lotteryStatus === "draft";
 
-  // Build map: registrationId → partner info for badges + detail sheet
+  // Build map: registrationId -> partner info for badges + detail sheet
   const pairingBadgeMap = useMemo(() => {
     const map = new Map<string, { partnerName: string | null; partnerImage: string | null; isInviter: boolean }>();
     for (const pairing of pairings) {
@@ -275,12 +275,12 @@ export function GuestList({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="grid gap-2 sm:flex sm:items-center">
           <Select
             value={statusFilter}
             onValueChange={(v) => setStatusFilter(v as StatusFilter)}
           >
-            <SelectTrigger className="w-[180px] h-8 text-xs">
+            <SelectTrigger className="h-8 w-full text-xs sm:w-[180px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -305,7 +305,7 @@ export function GuestList({
           </Select>
 
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
-            <SelectTrigger className="w-[160px] h-8 text-xs">
+            <SelectTrigger className="h-8 w-full text-xs sm:w-[160px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

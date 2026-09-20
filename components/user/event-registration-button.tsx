@@ -156,7 +156,14 @@ export function EventRegistrationButton({ event, registration, spotsRemaining, p
     );
   }
 
-  // Event closed or completed
+  // Event closed, completed, or cancelled
+  if (event.status === 'cancelled') {
+    return (
+      <Button size="lg" className="w-full rounded-xl text-lg" disabled>
+        Event Cancelled
+      </Button>
+    );
+  }
   if (event.status === 'closed' || event.status === 'completed') {
     return (
       <Button size="lg" className="w-full rounded-xl text-lg" disabled>

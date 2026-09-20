@@ -28,8 +28,8 @@ import {
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { title: 'My Events', url: '/user/events', icon: Calendar },
   { title: 'Discover', url: '/user/discover', icon: Compass },
+  { title: 'My Events', url: '/user/events', icon: Calendar },
   { title: 'Directory', url: '/user/directory', icon: Users },
 ];
 
@@ -48,7 +48,7 @@ export function TopNav() {
           <div className="flex items-center">
             {/* Logo */}
             <Link
-              href="/user/events"
+              href="/user/discover"
               className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-all hover:bg-stone-100/80 dark:hover:bg-white/5"
             >
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-600 to-orange-700 shadow-sm shadow-amber-500/25">

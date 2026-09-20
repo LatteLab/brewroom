@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   ClipboardList,
   UserPlus,
+  UsersRound,
   X,
   Plus,
 } from "lucide-react";
@@ -146,6 +147,12 @@ export function EventForm({
   const [requireApproval, setRequireApproval] = useState(
     event?.requireApproval ?? false
   );
+  const [showAttendeesPreRegistration, setShowAttendeesPreRegistration] = useState(
+    event?.showAttendeesPreRegistration ?? true
+  );
+  // "Notify registrants" toggle, only visible when editing. Off by default - most edits are
+  // small admin tweaks that shouldn't spam everyone.
+  const [notifyRegistrants, setNotifyRegistrants] = useState(false);
   const [timezone, setTimezone] = useState(
     () => event?.timezone ?? 'America/New_York'
   );
@@ -243,7 +250,10 @@ export function EventForm({
     formData.set("visibility", visibility);
     formData.set("waitlistEnabled", String(waitlistEnabled));
     formData.set("plusOneEnabled", String(plusOneEnabled));
-    if (!isEditing) {
+    formData.set("showAttendeesPreRegistration", String(showAttendeesPreRegistration));
+    if (isEditing) {
+      formData.set("notifyRegistrants", String(notifyRegistrants));
+    } else {
       formData.set("requireApproval", String(requireApproval));
     }
     formData.set("questions", questions.length > 0 ? JSON.stringify(questions) : "");
@@ -415,6 +425,23 @@ export function EventForm({
                 />
               </div>
 
+              {/* Show attendees before registration */}
+              <div className="flex items-center justify-between px-3 sm:px-4 py-2">
+                <div className="flex items-center gap-2.5">
+                  <UsersRound className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div>
+                    <span className="text-sm">Show Attendees Before Registration</span>
+                    <p className="text-[11px] text-muted-foreground">
+                      When off, only confirmed attendees see who else is going
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={showAttendeesPreRegistration}
+                  onCheckedChange={setShowAttendeesPreRegistration}
+                />
+              </div>
+
               {/* Require Approval */}
               <div className="flex items-center justify-between px-3 sm:px-4 py-2">
                 <div className="flex items-center gap-2.5">
@@ -554,6 +581,24 @@ export function EventForm({
               </div>
             </div>
           </div>
+
+          {/* Notify-on-change toggle (edit mode only) */}
+          {isEditing && (
+            <div className="flex items-start gap-2.5 rounded-xl border bg-amber-50 dark:bg-amber-950/20 px-3 sm:px-4 py-3">
+              <Switch
+                id="notify-registrants"
+                checked={notifyRegistrants}
+                onCheckedChange={setNotifyRegistrants}
+                className="mt-0.5"
+              />
+              <Label htmlFor="notify-registrants" className="cursor-pointer">
+                <span className="text-sm font-medium">Notify registrants of changes</span>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Sends an email when date, end time, or location changed.
+                </p>
+              </Label>
+            </div>
+          )}
 
           {/* Submit */}
           <Button

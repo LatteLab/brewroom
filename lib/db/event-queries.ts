@@ -1,7 +1,7 @@
 import { db } from './index';
-import { events, eventRegistrations, eventAccess, lotteryHistory, users, semesters, registrationAuditLog, eventPlusOneInvites, eventEditLog } from './schema';
-import { eq, and, or, desc, gte, lt, count, inArray, isNull, sql } from 'drizzle-orm';
-import type { Event, NewEvent, EventRegistration, NewRegistrationAuditLog, EventPlusOneInvite, NewEventPlusOneInvite, NewEventEditLog } from './schema';
+import { events, eventRegistrations, eventAccess, lotteryHistory, users, semesters, registrationAuditLog, eventPlusOneInvites, eventEditLog, eventPhotos, eventEmailReminderRules } from './schema';
+import { eq, and, or, desc, asc, gte, lt, count, inArray, isNull, sql } from 'drizzle-orm';
+import type { Event, NewEvent, EventRegistration, NewRegistrationAuditLog, EventPlusOneInvite, NewEventPlusOneInvite, NewEventEditLog, EventPhoto, NewEventPhoto, EventEmailReminderRule } from './schema';
 import type { RegistrationRow, RegistrationWithStats } from '@/lib/types/event';
 
 // ============================================================================
@@ -29,9 +29,9 @@ export async function getPublishedEvents(filter?: 'upcoming' | 'past') {
 
   if (filter === 'upcoming') {
     baseConditions.push(gte(events.date, now));
-    baseConditions.push(eq(events.status, 'open'));
+    baseConditions.push(inArray(events.status, ['open', 'closed']));
   } else if (filter === 'past') {
-    baseConditions.push(or(lt(events.date, now), inArray(events.status, ['closed', 'completed']))!);
+    baseConditions.push(or(lt(events.date, now), inArray(events.status, ['completed', 'cancelled']))!);
   }
 
   const orderDir = filter === 'past' ? desc(events.date) : events.date;
@@ -430,9 +430,9 @@ export async function getUserEvents(userId: string, filter?: 'upcoming' | 'past'
 
   if (filter === 'upcoming') {
     conditions.push(gte(events.date, now));
-    conditions.push(eq(events.status, 'open'));
+    conditions.push(inArray(events.status, ['open', 'closed']));
   } else if (filter === 'past') {
-    conditions.push(or(lt(events.date, now), inArray(events.status, ['closed', 'completed']))!);
+    conditions.push(or(lt(events.date, now), inArray(events.status, ['completed', 'cancelled']))!);
   }
 
   // Subquery: count confirmed registrations per event
@@ -469,9 +469,9 @@ export async function getUserEvents(userId: string, filter?: 'upcoming' | 'past'
 
   if (filter === 'upcoming') {
     accessConditions.push(gte(events.date, now));
-    accessConditions.push(eq(events.status, 'open'));
+    accessConditions.push(inArray(events.status, ['open', 'closed']));
   } else if (filter === 'past') {
-    accessConditions.push(or(lt(events.date, now), inArray(events.status, ['closed', 'completed']))!);
+    accessConditions.push(or(lt(events.date, now), inArray(events.status, ['completed', 'cancelled']))!);
   }
 
   const accessedRows = await db
@@ -501,10 +501,26 @@ export async function getUserEvents(userId: string, filter?: 'upcoming' | 'past'
     return filter === 'past' ? dateB - dateA : dateA - dateB;
   });
 
+  // Fetch photo counts for the past view in one query (avoid N+1 from per-card lookups).
+  let photoCounts: Map<string, number> = new Map();
+  if (filter === 'past' && all.length > 0) {
+    const eventIds = all.map((r) => r.event.id);
+    const counts = await db
+      .select({
+        eventId: eventPhotos.eventId,
+        count: count().as('photo_count'),
+      })
+      .from(eventPhotos)
+      .where(inArray(eventPhotos.eventId, eventIds))
+      .groupBy(eventPhotos.eventId);
+    photoCounts = new Map(counts.map((c) => [c.eventId, Number(c.count)]));
+  }
+
   return all.map((row) => ({
     event: row.event,
     registrationStatus: row.registrationStatus,
     registeredCount: row.registeredCount ?? 0,
+    photoCount: photoCounts.get(row.event.id) ?? 0,
   }));
 }
 
@@ -583,7 +599,7 @@ export async function getAllMembers() {
     .orderBy(users.name);
 }
 
-// Minimal query for member directory list — no PII beyond name/image/major/classYear
+// Minimal query for member directory list - no PII beyond name/image/major/classYear
 export async function getDirectoryList() {
   return db.select({
     id: users.id,
@@ -753,7 +769,7 @@ export async function createPlusOneInvite(data: NewEventPlusOneInvite): Promise<
   return row;
 }
 
-/** Update invite status (pending → accepted). */
+/** Update invite status (pending -> accepted). */
 export async function updatePlusOneInviteStatus(
   id: string,
   status: 'pending' | 'accepted',
@@ -788,4 +804,64 @@ export async function getEventEditLog(eventId: string) {
     .innerJoin(users, eq(eventEditLog.changedBy, users.id))
     .where(eq(eventEditLog.eventId, eventId))
     .orderBy(desc(eventEditLog.changedAt));
+}
+
+// ============================================================================
+// Event Photos Queries
+// ============================================================================
+
+export async function getEventPhotos(eventId: string): Promise<EventPhoto[]> {
+  return db.select()
+    .from(eventPhotos)
+    .where(eq(eventPhotos.eventId, eventId))
+    .orderBy(asc(eventPhotos.sortOrder), desc(eventPhotos.createdAt));
+}
+
+export async function getEventPhotoById(id: string): Promise<EventPhoto | null> {
+  const [photo] = await db.select().from(eventPhotos).where(eq(eventPhotos.id, id)).limit(1);
+  return photo || null;
+}
+
+export async function createEventPhoto(data: NewEventPhoto): Promise<EventPhoto> {
+  const [photo] = await db.insert(eventPhotos).values(data).returning();
+  return photo;
+}
+
+export async function createEventPhotos(data: NewEventPhoto[]): Promise<EventPhoto[]> {
+  if (data.length === 0) return [];
+  return db.insert(eventPhotos).values(data).returning();
+}
+
+export async function deleteEventPhoto(id: string): Promise<void> {
+  await db.delete(eventPhotos).where(eq(eventPhotos.id, id));
+}
+
+export async function updateEventPhotoCaption(id: string, caption: string | null): Promise<EventPhoto | null> {
+  const [updated] = await db.update(eventPhotos)
+    .set({ caption })
+    .where(eq(eventPhotos.id, id))
+    .returning();
+  return updated || null;
+}
+
+// ============================================================================
+// Event Email Reminder Rules
+// ============================================================================
+
+const DEFAULT_REMINDER_OFFSET_MINUTES = 1440; // 24h
+
+/** Insert a default 24h reminder rule for a freshly-created event. Idempotent. */
+export async function seedDefaultReminderRule(eventId: string): Promise<void> {
+  await db
+    .insert(eventEmailReminderRules)
+    .values({ eventId, offsetMinutes: DEFAULT_REMINDER_OFFSET_MINUTES, enabled: true })
+    .onConflictDoNothing();
+}
+
+export async function getEventReminderRules(eventId: string): Promise<EventEmailReminderRule[]> {
+  return db
+    .select()
+    .from(eventEmailReminderRules)
+    .where(eq(eventEmailReminderRules.eventId, eventId))
+    .orderBy(asc(eventEmailReminderRules.offsetMinutes));
 }

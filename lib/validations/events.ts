@@ -20,6 +20,7 @@ const eventBaseSchema = z.object({
   waitlistEnabled: formBool.pipe(z.boolean()).default(false),
   plusOneEnabled: formBool.pipe(z.boolean()).default(false),
   requireApproval: formBool.pipe(z.boolean()).default(false),
+  showAttendeesPreRegistration: formBool.pipe(z.boolean()).default(true),
   questions: z.string().optional(),
   timezone: z.string().min(1, 'Timezone is required'),
 });

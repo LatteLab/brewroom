@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Users, Calendar } from 'lucide-react';
+import { MapPin, Users, Calendar, Camera } from 'lucide-react';
 import type { Event } from '@/lib/db/schema';
 import { isGradient, parseGradient, gradientConfigToCSS } from '@/lib/gradients';
 import { FormattedTime } from '@/components/ui/formatted-time';
@@ -29,9 +29,11 @@ interface TimelineEventCardProps {
   event: Event;
   registrationStatus: string | null;
   registeredCount: number;
+  /** Photo album count - when > 0, shows a small camera badge on the card. */
+  photoCount?: number;
 }
 
-export function TimelineEventCard({ event, registrationStatus, registeredCount }: TimelineEventCardProps) {
+export function TimelineEventCard({ event, registrationStatus, registeredCount, photoCount = 0 }: TimelineEventCardProps) {
   const badge = getStatusBadge(registrationStatus);
 
   return (
@@ -59,11 +61,30 @@ export function TimelineEventCard({ event, registrationStatus, registeredCount }
             <span>{registeredCount} guest{registeredCount !== 1 ? 's' : ''}</span>
           </div>
 
-          {badge && (
-            <div className="mt-1">
-              <Badge variant="outline" className={`text-xs font-medium ${badge.className}`}>
-                {badge.label}
-              </Badge>
+          {(badge || event.status === 'cancelled' || photoCount > 0) && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {event.status === 'cancelled' && (
+                <Badge
+                  variant="outline"
+                  className="text-xs font-medium bg-red-500/15 text-red-700 border-red-500/25 dark:text-red-400"
+                >
+                  Cancelled
+                </Badge>
+              )}
+              {badge && event.status !== 'cancelled' && (
+                <Badge variant="outline" className={`text-xs font-medium ${badge.className}`}>
+                  {badge.label}
+                </Badge>
+              )}
+              {photoCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-xs font-medium bg-stone-500/10 text-stone-600 border-stone-500/20 dark:text-stone-300"
+                >
+                  <Camera className="mr-1 h-3 w-3" />
+                  {photoCount} {photoCount === 1 ? 'photo' : 'photos'}
+                </Badge>
+              )}
             </div>
           )}
         </div>

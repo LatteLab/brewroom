@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function UserPage() {
-  redirect('/user/events');
+  redirect('/user/discover');
 }

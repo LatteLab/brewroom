@@ -8,7 +8,12 @@ export const proxy = auth((req) => {
   // Public routes that don't require authentication
   const publicRoutes = ["/login", "/"];
   const isPublicRoute =
-    publicRoutes.includes(pathname) || pathname.startsWith("/api/auth");
+    publicRoutes.includes(pathname) ||
+    pathname.startsWith("/api/auth") ||
+    // Cron + webhook endpoints authenticate themselves via bearer token / signature.
+    // They must bypass NextAuth or Vercel Cron and external webhook providers can't reach them.
+    pathname.startsWith("/api/cron") ||
+    pathname.startsWith("/api/webhooks");
 
   // Allow public routes
   if (isPublicRoute) {

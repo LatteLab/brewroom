@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { UserPlus, Users, X, Check, Link2Off } from 'lucide-react';
+import { UserPlus, X, Check, Link2Off } from 'lucide-react';
 import {
   invitePlusOne,
   acceptPlusOneInvite,
@@ -233,7 +233,7 @@ export function PlusOneSection({ event, registration, outgoingInvite, incomingIn
     );
   }
 
-  // State: no invite — show invite button
+  // State: no invite - show invite button
   return (
     <>
       <Button
