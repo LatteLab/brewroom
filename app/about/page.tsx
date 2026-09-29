@@ -32,7 +32,7 @@ export default function About() {
           <Polaroid
             src="/photos/about-group.webp"
             alt="Latte Lab members in aprons gathered for a group photo"
-            caption="a few cups, a lot of friends"
+            caption="#brewcrew"
             rotation={3}
             priority
           />
