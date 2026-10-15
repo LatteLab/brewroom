@@ -1,0 +1,105 @@
+{
+  "brand": [
+    ["logo", "1jcu_P_XtDN6MHTKGCVm9byn5K1TOT9x4"],
+    ["beaver", "11kC3w4vB-DvGxkMptrpBULm2SLyJIOOp"],
+    ["beaver-bean", "1Kgy0e8CXzqyAD5lGYNkDNYe_oX6zDvhK"],
+    ["seal", "11c7zFy21hovldN4mjHr9NtpBCOAEVcdX"],
+    ["latte", "1KtIRJ6_aclVwMXSvZSjSO45EZFRs_-RE"],
+    ["iced-latte", "1cUT0B40UnEwZ2KhGc4hqdodlgsPuPj9l"],
+    ["pourover", "1FoiHICwz5kuSuZwDopXWxxYWa4f-d0SX"],
+    ["bean", "1PUaJOB12blHkyCbflwfNlodX-yFj8BK1"],
+    ["portafilter", "1c8rvljT0G3No30KKTXQ_4eolQFIBVIWt"]
+  ],
+  "photos": [
+    {
+      "name": "blueprint-1",
+      "id": "1EkvAHPX3VBnH8E1Rx_LMrXdyrZDMJxS0",
+      "original": "43636816_Unknown.JPG",
+      "folder": "17YOKeAXQXWNxxP3y1COEPjpgZSTApnbj"
+    },
+    {
+      "name": "blueprint-2",
+      "id": "1W5tCy_o13fh7bQuhlOBI5pgYa-5XCv_c",
+      "original": "43636592_Unknown.JPG",
+      "folder": "17YOKeAXQXWNxxP3y1COEPjpgZSTApnbj"
+    },
+    {
+      "name": "blueprint-4",
+      "id": "1V_PTDXMqeGa2fBhtq9jRLXH24lKieqIt",
+      "original": "43636336_Unknown.JPG",
+      "folder": "17YOKeAXQXWNxxP3y1COEPjpgZSTApnbj"
+    },
+    {
+      "name": "blueprint-6",
+      "id": "1A4I4wNAZbMrjDmUJpq6dkaoY5z41iDsw",
+      "original": "43635888_Unknown.JPG",
+      "folder": "17YOKeAXQXWNxxP3y1COEPjpgZSTApnbj"
+    },
+    {
+      "name": "blueprint-7",
+      "id": "1YWngN6DI5ASYTpqtsx7eRchOimw-Su90",
+      "original": "43635872_Unknown.JPG",
+      "folder": "17YOKeAXQXWNxxP3y1COEPjpgZSTApnbj"
+    },
+    {
+      "name": "social-1",
+      "id": "1OzT0rhkUKue5OES0W9ID2A0uI8WAu_6h",
+      "original": "IMG_5826.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "social-2",
+      "id": "1QrdC6L9u96B_uv8cOu12QMfNDrfcvbr7",
+      "original": "IMG_5827.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "social-3",
+      "id": "1UrpQEm71ud_3c60lSGlB5ko6CXXJHOL6",
+      "original": "IMG_5824.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "social-4",
+      "id": "1PmhnGB9hvmxp5uX9r6hjrCnxIMYE6_vG",
+      "original": "IMG_5837.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "social-6",
+      "id": "1beZjPdiqWzeTqNwKL1tknI_4W9lJqMHw",
+      "original": "IMG_5822.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "social-7",
+      "id": "1gQ3vsbnIQJ9HaDTQBodIRsb8HaY6fWld",
+      "original": "IMG_5843.JPG",
+      "folder": "1tvKZRo7d1gwFLGj34E_E3-6kfpisHhmH"
+    },
+    {
+      "name": "saas-1",
+      "id": "1yycMFPhsdyPfKyHR-le-1lampYn8JywN",
+      "original": "Edited_IMG_3693.JPG",
+      "folder": "1qc-huHDZFCIjkNcr9f3CYetrcEY6BUjI"
+    },
+    {
+      "name": "saas-2",
+      "id": "1bGnbRlhg_DNxLEAtSA-8q5JP0Opgp2Ko",
+      "original": "IMG_5553.JPG",
+      "folder": "1qc-huHDZFCIjkNcr9f3CYetrcEY6BUjI"
+    },
+    {
+      "name": "saas-3",
+      "id": "1GRZRtF43wc_jZSe8VXsOzboetI8E_Qou",
+      "original": "IMG_5552.JPG",
+      "folder": "1qc-huHDZFCIjkNcr9f3CYetrcEY6BUjI"
+    },
+    {
+      "name": "saas-5",
+      "id": "1UTFrAcq1NwhhMKVWwVUMuTNHoWUnkE-3",
+      "original": "IMG_5549.JPG",
+      "folder": "1qc-huHDZFCIjkNcr9f3CYetrcEY6BUjI"
+    }
+  ]
+}
