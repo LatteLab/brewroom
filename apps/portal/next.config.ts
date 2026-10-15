@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
+import { resolve } from "node:path";
 import { withPostHogConfig } from "@posthog/nextjs-config";
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: resolve(process.cwd(), "../.."),
   images: {
     remotePatterns: [
       {
