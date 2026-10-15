@@ -1,5 +1,5 @@
 {
-  "name": "lattelab-web",
+  "name": "@lattelab/cafe",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -26,8 +26,8 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "eslint": "^9",
     "eslint-config-next": "^16.3.5",
     "prettier": "^3.9.7",

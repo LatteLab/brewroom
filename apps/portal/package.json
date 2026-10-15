@@ -1,14 +1,15 @@
 {
-  "name": "latte-lab-frontend",
+  "name": "@lattelab/portal",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3001",
     "lint": "eslint",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",
@@ -56,20 +57,12 @@
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.12"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@posthog/cli",
-      "esbuild",
-      "sharp",
-      "unrs-resolver"
-    ]
-  },
   "devDependencies": {
     "@next/env": "^16.1.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@types/sanitize-html": "^2.16.1",
     "baseline-browser-mapping": "^2.9.19",
     "drizzle-kit": "^0.31.7",

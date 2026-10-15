@@ -1,0 +1,16 @@
+{
+  "name": "brewroom",
+  "private": true,
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev:cafe": "pnpm --filter @lattelab/cafe dev",
+    "dev:portal": "pnpm --filter @lattelab/portal dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @lattelab/cafe test"
+  }
+}

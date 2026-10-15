@@ -1,0 +1,55 @@
+name: Workspace checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [cafe, portal]
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sh scripts/verify-migration.sh
+      - run: pnpm --filter @lattelab/${{ matrix.app }} lint
+      - run: pnpm --filter @lattelab/${{ matrix.app }} typecheck
+      - if: matrix.app == 'cafe'
+        run: pnpm test
+      - name: Build Cafe
+        if: matrix.app == 'cafe'
+        run: pnpm --filter @lattelab/cafe build
+      - name: Build portal with non-production placeholders
+        if: matrix.app == 'portal'
+        run: pnpm --filter @lattelab/portal build
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:9/build
+          AUTH_SECRET: ci-build-only-not-a-real-auth-secret
+          AUTH_URL: http://localhost:3001
+          AUTH_GOOGLE_ID: ci-build-only
+          AUTH_GOOGLE_SECRET: ci-build-only
+          AUTH_RESEND_KEY: re_ci_build_only
+          EMAIL_FROM: build@example.invalid
+          RESEND_API_KEY: re_ci_build_only
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-build-only
+          NEXT_PUBLIC_POSTHOG_KEY: phc_ci_build_only
+          NEXT_PUBLIC_POSTHOG_HOST: http://127.0.0.1:9
+          NEXT_PUBLIC_APP_URL: http://localhost:3001

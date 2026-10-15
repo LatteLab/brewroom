@@ -1,11 +1,11 @@
 # CLAUDE.md
 
-Latte Lab Frontend - Next.js app for MIT's Latte Lab organization management.
+Latte Lab member portal at apps/portal in the Brewroom workspace. Commands below run from this app directory. Use the root Node/pnpm versions.
 
 ## Tech Stack
 
 - Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui
-- Auth: NextAuth v5 (Google OAuth restricted to `mit.edu`)
+- Auth: NextAuth v5 (Google OAuth and Resend magic links)
 - Database: PostgreSQL (Supabase) + Drizzle ORM
 - Storage: Supabase Storage (`event-covers`, `profile-images` buckets) via `lib/supabase/client.ts`
 - Rich text: Tiptap — event descriptions stored as HTML in `description` text column
@@ -14,9 +14,10 @@ Latte Lab Frontend - Next.js app for MIT's Latte Lab organization management.
 ## Commands
 
 ```bash
-pnpm dev          # Start dev server
+pnpm dev          # Start dev server on port 3001
 pnpm build        # Production build
 pnpm lint         # Run ESLint
+pnpm typecheck    # Generate route types and check TypeScript
 pnpm db:push      # Push schema to database
 pnpm db:studio    # Open Drizzle Studio
 ```

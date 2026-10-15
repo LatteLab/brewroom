@@ -1,42 +1,58 @@
-# brewroom
+# Member portal
 
-Latte Lab’s member app and internal tools — the working space behind MIT’s student-run coffee community.
+Latte Lab's member and admin app at [app.lattelab.org](https://app.lattelab.org). It handles profiles, events, registration, lotteries, check-in, and email blasts. The public site lives in [../cafe](../cafe/README.md).
 
-**Why brewroom?** It’s where things get made: the apps and tools that help the club run. Our companion repository, [cafe](https://github.com/LatteLab/cafe), is the public website: where people discover Latte Lab.
+## Environment
 
-Visit [app.lattelab.org](https://app.lattelab.org). This application is built with Next.js.
+After the [root installation steps](../../README.md), copy the template from the repository root.
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```sh
+cp apps/portal/.env.example apps/portal/.env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ask the team lead for development database, authentication, storage, and email configuration. Fill in `.env.local` before running the app. The empty template is a checklist, not a working build configuration.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Variables | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Development PostgreSQL connection used by Drizzle |
+| `AUTH_SECRET` | Local Auth.js signing secret; generate with `openssl rand -base64 32` |
+| `AUTH_URL`, `NEXT_PUBLIC_APP_URL` | Use `http://localhost:3001` locally |
+| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Google OAuth; register `http://localhost:3001/api/auth/callback/google` as a development callback |
+| `AUTH_RESEND_KEY`, `EMAIL_FROM` | Resend magic-link login and verified sender |
+| `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET` | Email blasts and delivery-event verification |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Development storage project and browser-safe anon key |
+| `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST` | Development analytics project and host |
+| `POSTHOG_API_KEY`, `POSTHOG_PROJECT_ID` | Optional source-map upload credentials for CI; leave unset locally |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`AUTH_RESEND_KEY` and `RESEND_API_KEY` serve different code paths, even when the same development key is used for both. Use only test recipients when exercising email. Never put a Supabase service-role key in a `NEXT_PUBLIC_` variable.
 
-## Learn More
+Storage expects `event-covers` and `profile-images` buckets with the team's existing policies. The image allowlist in `next.config.ts` must include the development storage hostname. Ask the team lead for a test member and admin access before testing protected workflows.
 
-To learn more about Next.js, take a look at the following resources:
+## Run and check
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+From the repository root:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sh
+pnpm dev:portal
+pnpm --filter @lattelab/portal lint
+pnpm --filter @lattelab/portal typecheck
+pnpm --filter @lattelab/portal build
+```
 
-## Deploy on Vercel
+Open http://localhost:3001. Use `pnpm --filter @lattelab/portal start` to serve a production build locally on the same port.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The portal has no automated test suite yet. Before releasing behavior changes, test sign-in, profile onboarding, registration and cancellation, and affected admin flows with development data. A build does not verify database permissions, email delivery, or authentication providers.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Database work
+
+Normal development uses the established development schema. Installation and builds do not change the database. After confirming the target and coordinating with the team lead:
+
+```sh
+pnpm --filter @lattelab/portal db:studio
+# Applies schema changes to DATABASE_URL; do not run as a setup step.
+pnpm --filter @lattelab/portal db:push
+```
+
+Filtering matters: Drizzle resolves environment and schema paths from the portal directory. The profile import under `scripts/` also writes data and is not ordinary onboarding.
+
+See `CLAUDE.md` for application rules, `docs/` for historical design notes, and the [deployment handoff](../../docs/deployment.md). [Event photos and mailing PR #5](https://github.com/LatteLab/brewroom/pull/5) remains separate; its additional services and migrations need their own rollout.

@@ -2,8 +2,8 @@
 
 # Latte Lab public website
 
-This repository is the public social club website, not the member portal in brewroom.
-Next.js 16 App Router, React 19, TypeScript, Tailwind 4. Node >=22.6; use npm and commit package-lock.json.
+This workspace is the public social club website. The member portal lives in ../portal.
+Next.js 16 App Router, React 19, TypeScript, Tailwind 4. Use the root Node/pnpm versions and commit the root pnpm-lock.yaml.
 
 ## Product direction
 
@@ -23,7 +23,7 @@ Keep the homepage short. Warm cream, forest green, espresso typography, original
 
 ## Verification and release
 
-Run npm test, npm run lint, npm run typecheck, npm run build. Check mobile navigation, gallery filters/load-more/dialog, and page widths in a browser. The user approved production deployment on September 16, 2026 after local preview. AWS apex DNS was previously pointed at CloudFront and must be separately verified before any domain cutover.
+From this app directory run pnpm test, pnpm lint, pnpm typecheck, pnpm build. Check mobile navigation, gallery filters/load-more/dialog, and page widths in a browser. The user approved production deployment on September 16, 2026 after local preview. AWS apex DNS was previously pointed at CloudFront and must be separately verified before any domain cutover.
 
 ## Signature footer
 
