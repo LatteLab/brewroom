@@ -4,7 +4,7 @@ import { site } from "@/content/site";
 export const metadata: Metadata = {
   title: "Join",
   description:
-    "Find your way into Latte Lab: club membership, team applications, Instagram, and contact details.",
+    "Find your way into Latte Lab: club membership, events, Instagram, and contact details.",
   alternates: { canonical: "/join" },
 };
 function FormLink({ href, label }: { href: string | null; label: string }) {
@@ -45,7 +45,6 @@ export default function Join() {
         <h1 className="join-heading">Find your way into Latte Lab!</h1>
         <div className="join-links">
           <FormLink href={site.membershipUrl} label="Join the membership mailing list :DD" />
-          <FormLink href={site.applicationUrl} label="Apply to Latte Lab Internal Team!!!" />
           <FormLink href={site.calendarUrl} label="Add Latte Lab Events to your GCal!!" />
         </div>
         <div className="join-socials">
