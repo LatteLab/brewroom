@@ -187,3 +187,10 @@ User approved merging all preview work to main without squashing and deploying. 
 - 2026-09-21: Removed the four repetitive final scrapbook entries shown by the user: blueprint-7, social-1, social-6, and saas-3.
 
 - 2026-09-21: Added user-supplied IMG_9177.JPG as shared-cup-fall-2026.webp with only “Fall 2026” visible in the scrapbook and photo viewer.
+
+
+## Team headshots — 2026-10-29
+
+- Added 33 supplied headshots as local optimized WebP assets with responsive next/image loading and blur placeholders. Missing portraits retain illustrations; roster names, roles, and order are unchanged.
+- Alan Duan, Allison Liu, Rozalen Adous, and Trinity Chen have individual framing settings. Other portraits use base framing. Photos include a small transparent beaver in the corner.
+- content/team-photos.ts owns the portrait mappings and framing settings. content/asset-sources.json records original Drive IDs and filenames.

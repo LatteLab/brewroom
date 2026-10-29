@@ -17,7 +17,7 @@ Keep the homepage short. Warm cream, forest green, espresso typography, original
 - The About group photo is the user-supplied IMG_7876.jpeg, optimized as public/photos/about-group.webp. Its landscape CSS crop removes excess floor while preserving the full group.
 - content/asset-sources.json records original Drive IDs, not expiring download URLs.
 - content/press.json preserves earlier press records. Distinguish direct club coverage from wider MIT coffee stories.
-- Team names and roles follow the handbook reviewed September 16, 2026. Illustrations are intentional until individually verified portraits are available.
+- Team names and roles follow the handbook reviewed September 16, 2026. content/team-photos.ts maps roster names to local portraits with transparent beaver corners. Only Alan Duan, Allison Liu, Rozalen Adous, and Trinity Chen have individual framing overrides; all other portraits use base framing. Keep illustrations for people without a supplied portrait. content/asset-sources.json records the original headshot Drive files.
 - Contact is mailto:lattelab-exec@mit.edu. Canonical metadata uses https://lattelab.org.
 - Honor reduced motion, visible keyboard focus, semantic headings, and useful image alt text. Gallery uses a native dialog with Escape and focus restoration.
 

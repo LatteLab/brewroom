@@ -713,14 +713,32 @@ h1 em::after {
 .team-card:hover {
   transform: translateY(-5px) rotate(0);
 }
-.team-illustration {
+.team-illustration,
+.team-portrait {
   background: #e2e7d9;
-  aspect-ratio: 1.5;
+  aspect-ratio: 1;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+.team-portrait > img {
+  object-fit: cover;
+  object-position: center 35%;
+}
+.team-sticker {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: clamp(32px, 20%, 70px);
+  aspect-ratio: 1;
+  rotate: -9deg;
+}
+.team-sticker img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .team-tone-1 .team-illustration {
   background: #eee2cd;
