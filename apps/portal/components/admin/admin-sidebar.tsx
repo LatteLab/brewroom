@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const navItems = [
-  { title: "POS & drinks", url: "/admin/pos", icon: Coffee },
+  { title: "POS", url: "/admin/pos", icon: Coffee },
   {
     title: "Dashboard",
     url: "/admin",
