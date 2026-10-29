@@ -37,6 +37,7 @@ export const eventInputSchema = z.object({
   startsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Enter a date and time.'),
   endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Enter a date and time.'),
 }).strict();
+export const deleteEventSchema = z.object({ eventId: z.uuid(), nameConfirmation: z.string().trim().min(1).max(160) }).strict();
 export const menuInputSchema = z.object({
   eventId: z.uuid(), id: z.uuid().optional(), expectedVersion: z.number().int().positive().optional(),
   name: z.string().trim().min(1).max(120), options: menuOptionsSchema,
