@@ -29,6 +29,14 @@ export function configurationLabel(value: Configuration) {
   return `${value.temperature} · ${value.milk} milk · double espresso · ${value.syrup}% syrup${value.temperature === 'Iced' ? ` · ${value.ice === 'None' ? 'no' : value.ice.toLowerCase()} ice` : ''}`;
 }
 export type AnalyticsLog = { id: string; menuItemId: string; drinkName: string; configuration: Configuration; quantity: number; submissionId: string; recordedAt: Date | string; kerb: string | null; recordedBy: string };
+export function buildDrinkBreakdowns(rows: Pick<AnalyticsLog, 'configuration' | 'quantity'>[]) {
+  const breakdowns: Record<string, Record<string, number>> = { Temperature: {}, Milk: {}, Syrup: {}, Ice: {} };
+  for (const { configuration, quantity } of rows) {
+    const values = { Temperature: configuration.temperature, Milk: configuration.milk, Syrup: `${configuration.syrup}%`, Ice: configuration.temperature === 'Iced' ? configuration.ice : 'Not applicable (hot)' };
+    for (const [key, value] of Object.entries(values)) breakdowns[key][value] = (breakdowns[key][value] ?? 0) + quantity;
+  }
+  return breakdowns;
+}
 export function buildAnalytics(logs: AnalyticsLog[], event: { startsAt: Date | string; endsAt: Date | string }, intervalMinutes: 5 | 15) {
   const requestedStep = intervalMinutes * 60000;
   const start = new Date(event.startsAt).getTime(); const end = new Date(event.endsAt).getTime();
@@ -40,15 +48,13 @@ export function buildAnalytics(logs: AnalyticsLog[], event: { startsAt: Date | s
   for (let time = first; time <= last; time += step) buckets.set(time, { at: new Date(time).toISOString(), label: formatPosDate(new Date(time), true), drinks: 0, orders: new Set() });
   const drinks = new Map<string, { name: string; count: number }>();
   const orderTimes = new Map<string, number>();
-  const breakdowns: Record<string, Record<string, number>> = { Temperature: {}, Milk: {}, Syrup: {}, Ice: {} };
+  const breakdowns = buildDrinkBreakdowns(logs);
   for (const log of logs) {
     const time = new Date(log.recordedAt).getTime();
     orderTimes.set(log.submissionId, Math.min(orderTimes.get(log.submissionId) ?? time, time));
     const bucket = buckets.get(Math.floor(new Date(log.recordedAt).getTime() / step) * step);
     if (bucket) { bucket.drinks += log.quantity; bucket.orders.add(log.submissionId); }
     const previous = drinks.get(log.menuItemId); drinks.set(log.menuItemId, { name: previous?.name ?? log.drinkName, count: (previous?.count ?? 0) + log.quantity });
-    const values = { Temperature: log.configuration.temperature, Milk: log.configuration.milk, Syrup: `${log.configuration.syrup}%`, Ice: log.configuration.temperature === 'Iced' ? log.configuration.ice : 'Not applicable (hot)' };
-    for (const [key, value] of Object.entries(values)) breakdowns[key][value] = (breakdowns[key][value] ?? 0) + log.quantity;
   }
   const totalDrinks = logs.reduce((sum, log) => sum + log.quantity, 0);
   const orderedTimes = [...orderTimes.values()].sort((a, b) => a - b);

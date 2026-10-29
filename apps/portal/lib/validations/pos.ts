@@ -37,6 +37,7 @@ export const eventInputSchema = z.object({
   startsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Enter a date and time.'),
   endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Enter a date and time.'),
 }).strict();
+export const deleteEventSchema = z.object({ eventId: z.uuid(), nameConfirmation: z.string().trim().min(1).max(160) }).strict();
 export const menuInputSchema = z.object({
   eventId: z.uuid(), id: z.uuid().optional(), expectedVersion: z.number().int().positive().optional(),
   name: z.string().trim().min(1).max(120), options: menuOptionsSchema,
@@ -56,6 +57,8 @@ export const logInputSchema = z.object({
   kerb: z.string().trim().max(64).nullable().optional(), outsideWindowConfirmed: z.boolean().default(false),
 }).strict();
 export type LogInput = z.infer<typeof logInputSchema>;
+export const singleDrinkInputSchema = logInputSchema.extend({ lines: z.tuple([lineSchema.extend({ quantity: z.literal(1) })]) });
+export type SingleDrinkInput = z.infer<typeof singleDrinkInputSchema>;
 export const correctionInputSchema = z.object({
   logId: z.uuid(), mutationId: z.uuid(), configuration: configurationSchema,
   quantity: quantitySchema, kerb: z.string().trim().max(64).nullable().optional(),

@@ -1,6 +1,6 @@
 # Event drink logging and analytics
 
-Date: October 29, 2026. Implemented and verified in an isolated feature checkout with disposable local PostgreSQL. Browser flows, tests, typecheck, lint, and production build passed. Not deployed.
+Date: October 29, 2026. This contract includes the POS overview and direct single-drink logging follow-ups. Verification below uses disposable local PostgreSQL; release checks are recorded in the pull request.
 
 See the [implementation plan](implementation-plan.md) for delivery steps and the [portal documentation index](../../README.md) for current guides.
 
@@ -18,10 +18,13 @@ This version excludes inventory, payments, pre-orders, customer accounts, regist
 - `recorded_at` is the only order-time metric. It means when staff first record an order as received.
 - Staff do not enter a serving time or backdate a recorded timestamp.
 - Staff configure drink names, available choices, and defaults through forms.
-- The initial menu has Pumpkin Spice Latte and Apple Cider Latte.
+- New events start with an empty menu. Admins add drinks for each event; there are no preset drinks or copied menus. Existing menus are preserved.
 - Options are Hot/Iced, Whole/Oat milk, 50/75/100 percent syrup, and iced-only None/Light/Full ice. Espresso is fixed double.
 - An MIT kerb is optional. A blank kerb never blocks an order and does not require a customer user record.
-- Reports show event drink totals, configuration breakdowns, and time spikes in recorded order activity.
+- The kiosk logs one drink directly after customization, without a cart or quantity control. Kerb stays optional; this does not enforce identity or a one-redemption-per-person limit.
+- A visible one-click Remove entry action voids accidental records without a confirmation dialog or typed reason. The server records the reason as `Accidental entry removed`; normal ownership checks still apply.
+- Reports show event drink totals, configuration breakdowns, and time spikes in recorded order activity, plus an overall POS overview across all events.
+- Admins can permanently delete a POS event after typing its current name. This deletes its menu and all order history and removes its counts from analytics.
 
 The technical choices below describe the feature implementation. They do not establish a production deployment.
 
@@ -49,7 +52,7 @@ A menu item belongs to one event. Its options use the supported groups rather th
 
 Each drink log stores one selected configuration and its quantity. Differently customized drinks produce separate rows. The server copies the authoritative drink name and specifications into the log, including fixed double espresso. Names are never relational keys. Menu edits do not change old snapshots.
 
-Require a menu-item/event foreign key match and positive integer quantities. Restrict deletion of events and menu items with log history. Keep menu availability separate from event lifecycle; an unavailable drink can remain visible in historical reports.
+Require a menu-item/event foreign key match and positive integer quantities. Foreign keys restrict direct deletion of referenced events/menu items. The explicit admin event-deletion transaction locks the event, verifies its current name, then deletes its logs, menu, and event together. Keep menu availability separate from event lifecycle; an unavailable drink can remain visible in historical reports.
 
 Start with indexes on menu event/sort order and valid logs by event/recorded time. Add indexes only for actual report queries. Do not store separate mutable report counters.
 
@@ -63,7 +66,7 @@ Delayed entries remain delayed records. Neither the UI nor reports claim they re
 
 ## Save and retry contract
 
-One submission means one order entered by staff. Its drink rows share a `submission_id`, with a zero-based `line_index`. This separates drink count from order count without an orders table.
+One kiosk submission now means one drink entered by staff. The public logging action validates exactly one line with quantity one. Existing multi-drink submissions remain valid historical data; the transaction/query layer and reports preserve their quantities and shared `submission_id` with zero-based `line_index`. This separates drink count from order count without an orders table.
 
 The kiosk retains one submission ID through a save or retry. The server validates permission, event/menu membership, expected menu versions, choices, quantities, and optional kerb. Hot drinks cannot carry ice. A blank kerb is stored as null.
 
@@ -79,7 +82,7 @@ Original request rows and timestamps remain intact. Undo sets void metadata with
 
 The replacement preserves the original `submission_id`, `line_index`, `recorded_at`, and recorder. Its new UUID and unique correction `mutation_id` identify the correction operation. The old row's void metadata records when and by whom the correction occurred. No client can supply an arbitrary order timestamp.
 
-Allow only one replacement per row with a unique non-null `replaces_log_id`. Lock the current row and require that it is not already voided. Repeated mutation IDs return the prior correction result. These rules prevent concurrent corrections from producing two valid replacements.
+Allow only one replacement per row with a unique non-null `replaces_log_id`. Lock the parent event before the current log row, and require that the row is not already voided. Logging, menu writes, corrections, voids, and event deletion share that event-first lock order. Repeated mutation IDs return the prior correction result. These rules prevent concurrent corrections from producing two valid replacements or deadlocking with event deletion.
 
 Reports read only non-voided rows. Correcting a quantity or milk choice changes totals and breakdowns without moving the order into the correction-time bucket. Order count is distinct valid `submission_id`; an order whose lines are all voided is excluded.
 
@@ -87,7 +90,7 @@ Reports read only non-voided rows. Correcting a quantity or milk choice changes 
 
 Server actions authenticate, validate client input, check permissions, invoke query/transaction functions, and return useful errors. Database functions own inserts, row locks, transactions, and report queries. Server-rendered pages can read those functions directly after checking access.
 
-Proposed operations are event creation/update, menu saving, drink logging, void/correction, and analytics/export reads. Keep them in `app/actions/pos.ts`, `lib/db/pos-queries.ts`, and `lib/validations/pos.ts`. Do not add an API app, event bus, or pass-through service layer.
+Operations are event creation/update/deletion, menu saving, drink logging, void/correction, and overview/analytics/export reads. Keep them in `app/actions/pos.ts`, `lib/db/pos-queries.ts`, and `lib/validations/pos.ts`. Do not add an API app, event bus, or pass-through service layer.
 
 Admins manage event setup and reports. Only explicitly eligible POS staff can log drinks and use the permitted recent-log controls. Membership alone does not grant access. Set the server-only comma-separated `POS_STAFF_EMAILS` allowlist for cashier access; admins retain access. Check eligibility on every server entry point. Staff can view and correct only their own logs. Do not grant blanket admin access to cashiers.
 
@@ -95,7 +98,11 @@ Admins manage event setup and reports. Only explicitly eligible POS staff can lo
 
 Proposed portal routes are `/admin/pos`, `/admin/pos/new`, and `/admin/pos/[eventId]`. The event page contains setup, menu, recent logs, and analytics. `/kiosk` selects a permitted event; `/kiosk/[eventId]` keeps order entry full-screen.
 
-Staff can rename drinks, choose supported options/defaults, reorder items, and mark items unavailable within an event. Drag handles set kiosk order and save automatically; focused handles also support up and down arrow keys. Numeric positions are internal, and new drinks append to the menu. Reordering checks the complete event menu and its previous order under the event lock, so a stale editor cannot overwrite a newer order. It does not change drink configuration versions. Copying menus between events is out of scope. The kiosk defaults to one drink and supports multiple configured lines per submission. Disable repeat clicks while a save is pending, but rely on database uniqueness for retry protection.
+Staff can rename drinks, choose supported options/defaults, reorder items, and mark items unavailable within an event. Drag handles set kiosk order and save automatically; focused handles also support up and down arrow keys. Numeric positions are internal, and new drinks append to the menu. Reordering checks the complete event menu and its previous order under the event lock, so a stale editor cannot overwrite a newer order. It does not change drink configuration versions. Copying menus between events is out of scope. The kiosk shows the selected configuration directly in its summary; Log drink saves it without an add-to-order step. Disable repeat clicks while a save is pending, but rely on database uniqueness for retry protection.
+
+The overview shows total drinks, orders, event count, drinks per order, drink/option breakdowns, and counts beside each event. Group drinks by exact recorded name across events. Count distinct submissions within each event, then sum those counts, so reused IDs across events remain separate orders. Read event totals, drink totals, and configuration totals in a repeatable-read, read-only transaction; aggregate in SQL without fetching all identities or raw logs. Do not calculate an average order gap across unrelated events.
+
+Delete controls appear on the overview and event page. The confirmation explains permanent loss of menu and complete history, removal from analytics, and broken kiosk links. The server checks the current event name under its lock; a stale name is rejected. Repeating deletion of an already absent event succeeds. Existing events are never deleted automatically.
 
 Reports use one valid-log dataset for screen and CSV. They calculate:
 
@@ -126,4 +133,4 @@ Before deployment, configure real staff eligibility and verify the browser flows
 
 The implementation uses an additive SQL migration, RLS with no direct anonymous/authenticated grants, and an explicit loopback-only SSL override for disposable development databases. The existing registration tables and flows remain intact.
 
-`pnpm --filter @lattelab/portal test:pos` passes seven domain tests. `POS_TEST_DATABASE_URL` plus `pnpm --filter @lattelab/portal test:pos:db` passes eight tests against real disposable PostgreSQL, including concurrent submissions, correction retries/races, preserved timestamps, constraints, RLS, stale menus, menu reordering, and permissions. Browser flows, typecheck, lint, and the production build passed. No shared database has been changed. See the implementation plan for verification details and external-service limits.
+`pnpm --filter @lattelab/portal test:pos` passes eight domain tests. `POS_TEST_DATABASE_URL` plus `pnpm --filter @lattelab/portal test:pos:db` passes twelve tests against real disposable PostgreSQL. These include single-drink validation, empty menus, overview reconciliation, deletion authorization and retries, correction chains, and deletion racing with logging/corrections/voids. Browser checks covered direct single-drink logging, one-click removal, name-confirmed deletion of a disposable local event, matching overview totals, and phone/tablet layouts without horizontal overflow. No migration is required for this follow-up, and no production records were modified during verification. Deployment monitoring was excluded at the user's request.

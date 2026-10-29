@@ -28,9 +28,74 @@ before(async () => {
 after(async () => { await database?.db.$client.end(); await client.end(); });
 async function fixture() {
   const event = await queries.createPosEvent(admin, { name: 'Test event', startsAt: '2026-10-01T10:00', endsAt: '2026-10-01T15:00' });
+  for (const name of ['Pumpkin Spice Latte', 'Apple Cider Latte']) await queries.savePosMenuItem(admin, { eventId: event.id, name, options: defaultMenuOptions, available: true });
   const menu = await queries.getPosMenu(admin, event.id); const item = menu[0];
   return { event, menu, item, input: { eventId: event.id, submissionId: randomUUID(), lines: [{ menuItemId: item.id, menuVersion: item.version, configuration: defaultMenuOptions.defaults, quantity: 2 }], outsideWindowConfirmed: true } };
 }
+test('new POS events start with an empty menu', async () => {
+  const event = await queries.createPosEvent(admin, { name: 'Empty menu event', startsAt: '2026-10-01T10:00', endsAt: '2026-10-01T15:00' });
+  assert.deepEqual(await queries.getPosMenu(admin, event.id), []);
+});
+test('overview combines valid drinks and counts orders separately for each event', async () => {
+  await assert.rejects(queries.getPosOverview(staff), /Administrator/);
+  const before = await queries.getPosOverview(admin);
+  const a = await fixture(); const b = await fixture();
+  const sharedSubmission = randomUUID();
+  const [original] = await queries.logPosDrinks(staff, { ...a.input, submissionId: sharedSubmission, lines: [...a.input.lines, { ...a.input.lines[0], menuItemId: a.menu[1].id, quantity: 1 }] });
+  await queries.correctPosDrinkLog(staff, { logId: original.id, mutationId: randomUUID(), configuration: { temperature: 'Hot', milk: 'Oat', syrup: 75 }, quantity: 3, reason: 'Correction' });
+  await queries.logPosDrinks(staff, { ...b.input, submissionId: sharedSubmission });
+  const [voided] = await queries.logPosDrinks(staff, { ...b.input, submissionId: randomUUID() });
+  await queries.voidPosDrinkLog(staff, { logId: voided.id, reason: 'Duplicate' });
+  const empty = await queries.createPosEvent(admin, { name: 'No orders', startsAt: '2026-10-01T10:00', endsAt: '2026-10-01T15:00' });
+  const report = await queries.getPosOverview(admin);
+  assert.equal(report.totalDrinks - before.totalDrinks, 6);
+  assert.equal(report.totalOrders - before.totalOrders, 2);
+  assert.equal(report.drinksPerOrder, report.totalDrinks / report.totalOrders);
+  assert.equal(report.events.find(event => event.id === a.event.id)?.totalDrinks, 4);
+  assert.equal(report.events.find(event => event.id === a.event.id)?.totalOrders, 1);
+  assert.equal(report.events.find(event => event.id === b.event.id)?.totalDrinks, 2);
+  assert.equal(report.events.find(event => event.id === empty.id)?.totalOrders, 0);
+  const drinkCount = (rows: typeof report.drinks, name: string) => rows.find(drink => drink.name === name)?.count ?? 0;
+  assert.equal(drinkCount(report.drinks, a.item.name) - drinkCount(before.drinks, a.item.name), 5);
+  assert.equal((report.breakdowns.Milk.Oat ?? 0) - (before.breakdowns.Milk.Oat ?? 0), 3);
+  assert.equal((report.breakdowns.Ice['Not applicable (hot)'] ?? 0) - (before.breakdowns.Ice['Not applicable (hot)'] ?? 0), 3);
+});
+test('deletion requires an admin and current name, removes all history atomically and permits retries', async () => {
+  const { event, input } = await fixture(); const other = await fixture();
+  const [log] = await queries.logPosDrinks(staff, input);
+  const replacement = await queries.correctPosDrinkLog(staff, { logId: log.id, mutationId: randomUUID(), configuration: log.configuration, quantity: 3, reason: 'Correction' });
+  await queries.correctPosDrinkLog(staff, { logId: replacement.id, mutationId: randomUUID(), configuration: log.configuration, quantity: 4, reason: 'Correction again' });
+  await assert.rejects(queries.deletePosEvent(staff, { eventId: event.id, nameConfirmation: event.name }), /Administrator/);
+  await queries.updatePosEvent(admin, event.id, { name: 'Renamed event', startsAt: '2026-10-01T10:00', endsAt: '2026-10-01T15:00' });
+  await assert.rejects(queries.deletePosEvent(admin, { eventId: event.id, nameConfirmation: event.name }), /current event name/);
+  assert.equal((await queries.getPosLogs(admin, event.id, true)).length, 3);
+  const before = await queries.getPosOverview(admin);
+  const request = { eventId: event.id, nameConfirmation: 'Renamed event' };
+  await queries.deletePosEvent(admin, request); await queries.deletePosEvent(admin, request);
+  assert.equal(await queries.getPosEvent(admin, event.id), null);
+  assert.deepEqual(await queries.getPosMenu(admin, event.id), []);
+  assert.deepEqual(await queries.getPosLogs(admin, event.id, true), []);
+  assert(await queries.getPosEvent(admin, other.event.id));
+  const after = await queries.getPosOverview(admin);
+  assert.equal(before.totalDrinks - after.totalDrinks, 4);
+  assert.equal(before.totalOrders - after.totalOrders, 1);
+});
+test('concurrent deletion and order mutations leave no partial event or history', async () => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { event, input } = await fixture(); const [log] = await queries.logPosDrinks(staff, input);
+    const results = await Promise.allSettled([
+      queries.deletePosEvent(admin, { eventId: event.id, nameConfirmation: event.name }),
+      queries.logPosDrinks(staff, { ...input, submissionId: randomUUID() }),
+      queries.correctPosDrinkLog(staff, { logId: log.id, mutationId: randomUUID(), configuration: log.configuration, quantity: 3, reason: 'Correction' }),
+      queries.voidPosDrinkLog(staff, { logId: log.id, reason: 'Void' }),
+    ]);
+    assert.equal(results[0].status, 'fulfilled');
+    for (const result of results.slice(1)) if (result.status === 'rejected') assert.match(String(result.reason), /Event not found|Entry not found|already changed/);
+    assert.equal(await queries.getPosEvent(admin, event.id), null);
+    assert.deepEqual(await queries.getPosMenu(admin, event.id), []);
+    assert.deepEqual(await queries.getPosLogs(admin, event.id, true), []);
+  }
+});
 test('authorization is enforced for setup, logging, reports and ownership', async () => {
   const { event, input } = await fixture();
   await assert.rejects(queries.createPosEvent(staff, { name: 'No' }), /Administrator/);

@@ -1,6 +1,6 @@
 # Implement event drink logging and analytics
 
-Date: October 29, 2026. Implementation is present in the feature checkout. Only disposable local databases were used; no shared database or deployment was changed.
+Date: October 29, 2026. The original delivery checklist is retained below. The final section records the subsequent overview, event-deletion, and single-drink logging follow-ups.
 
 Implement the [design](design.md). Use the [portal documentation index](../../README.md) and [portal setup guide](../../../README.md) for current commands and environment requirements.
 
@@ -166,3 +166,15 @@ Implementation was authorized after this plan was written. The migration was app
 - Phone and tablet views and the administrator dashboard were inspected without horizontal overflow. Keyboard operation worked and a fresh browser console contained no errors.
 - The menu follow-up was verified with pointer dragging and repeated keyboard moves, persistence after refresh, and the kiosk's saved order. The 390-pixel layout had no horizontal overflow. The existing four-order demo displayed a 3m 20s average gap; an empty event displayed no value.
 - Browser and build verification used disposable local PostgreSQL, local test accounts, and dummy provider configuration. External OAuth, Resend delivery, and shared Supabase were not exercised. No production secrets were copied.
+
+## POS overview and single-drink follow-up
+
+- [x] Stop seeding the two prototype drinks. New events start empty and creation opens the menu section. Existing menus remain intact.
+- [x] Add an admin-only overall report using SQL aggregates in one repeatable-read snapshot. Count orders per event, combine exact recorded drink names, exclude voids, and show per-event counts.
+- [x] Reorganize `/admin/pos` around overall metrics, drink/option breakdowns, and event management.
+- [x] Add event deletion with a current-name confirmation. Delete all event history/menu/event rows atomically, support retries, and use event-before-log locks for competing mutations.
+- [x] Remove the kiosk cart, add-to-order step, and quantity controls. Log the selected drink directly, with exactly one line of quantity one validated at the public server action. Retain the database/report representation of historical multi-drink records.
+- [x] Add visible one-click removal through the existing authorized, retry-safe void operation. Preserve removed entries in history and exclude them from analytics.
+- [x] Verify eight domain tests and twelve real PostgreSQL tests, including overview counts and concurrent deletion. Browser checks used disposable local data: empty menu creation, direct Hot/Oat logging, optional kerb clearing, removal, deletion/cancellation/name mismatch, updated totals, and a not-found kiosk link after deletion. Phone and tablet views had no horizontal overflow; the browser console had no errors.
+
+This follow-up changes no schema and requires no migration. Inventory, payments, legacy registration cleanup, and production deployment monitoring remain outside scope. The user authorized pushing and merging tested changes; production event records were not used for destructive testing.

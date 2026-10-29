@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './index';
 import { posEvents, posMenuItems, posDrinkLogs, type PosDrinkLog } from './schema';
-import { PosError, assertLogOwner, easternInstant, posStaffAllowed, type PosActor } from '../pos';
-import { configurationAllowed, configurationSchema, correctionInputSchema, defaultMenuOptions, eventInputSchema, logInputSchema, menuInputSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
+import { PosError, assertLogOwner, buildDrinkBreakdowns, easternInstant, posStaffAllowed, type PosActor } from '../pos';
+import { configurationAllowed, configurationSchema, correctionInputSchema, deleteEventSchema, eventInputSchema, logInputSchema, menuInputSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
 
 function staff(actor: PosActor) {
   if (!posStaffAllowed(actor, process.env.POS_STAFF_EMAILS ?? '')) throw new PosError('POS access is required.');
@@ -42,11 +42,37 @@ export async function getPosLogs(actor: PosActor, eventId: string, includeHistor
 export async function createPosEvent(actor: PosActor, input: unknown) {
   admin(actor);
   const values = eventDates(eventInputSchema.parse(input));
-  return db.transaction(async tx => {
-    const [event] = await tx.insert(posEvents).values({ ...values, createdBy: actor.id }).returning();
-    await tx.insert(posMenuItems).values(['Pumpkin Spice Latte', 'Apple Cider Latte'].map((name, sortOrder) => ({ eventId: event.id, name, sortOrder, options: structuredClone(defaultMenuOptions) })));
-    return event;
+  const [event] = await db.insert(posEvents).values({ ...values, createdBy: actor.id }).returning();
+  return event;
+}
+export async function deletePosEvent(actor: PosActor, input: unknown) {
+  admin(actor); const value = deleteEventSchema.parse(input);
+  await db.transaction(async tx => {
+    const [event] = await tx.select().from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
+    if (!event) return;
+    if (event.name !== value.nameConfirmation) throw new PosError('Type the current event name to confirm deletion. Refresh if its name changed.');
+    await tx.delete(posDrinkLogs).where(eq(posDrinkLogs.eventId, event.id));
+    await tx.delete(posMenuItems).where(eq(posMenuItems.eventId, event.id));
+    await tx.delete(posEvents).where(eq(posEvents.id, event.id));
   });
+  return value.eventId;
+}
+export async function getPosOverview(actor: PosActor) {
+  admin(actor);
+  return db.transaction(async tx => {
+    const [events, drinks, configurations] = await Promise.all([
+      tx.select({
+        ...getTableColumns(posEvents),
+        totalDrinks: sql<number>`coalesce(sum(${posDrinkLogs.quantity}), 0)`.mapWith(Number),
+        totalOrders: sql<number>`count(distinct ${posDrinkLogs.submissionId})`.mapWith(Number),
+      }).from(posEvents).leftJoin(posDrinkLogs, and(eq(posDrinkLogs.eventId, posEvents.id), isNull(posDrinkLogs.voidedAt))).groupBy(posEvents.id).orderBy(desc(posEvents.startsAt)),
+      tx.select({ name: posDrinkLogs.drinkName, count: sql<number>`sum(${posDrinkLogs.quantity})`.mapWith(Number) }).from(posDrinkLogs).where(isNull(posDrinkLogs.voidedAt)).groupBy(posDrinkLogs.drinkName).orderBy(desc(sql`sum(${posDrinkLogs.quantity})`), asc(posDrinkLogs.drinkName)),
+      tx.select({ configuration: posDrinkLogs.configuration, quantity: sql<number>`sum(${posDrinkLogs.quantity})`.mapWith(Number) }).from(posDrinkLogs).where(isNull(posDrinkLogs.voidedAt)).groupBy(posDrinkLogs.configuration),
+    ]);
+    const totalDrinks = events.reduce((sum, event) => sum + event.totalDrinks, 0);
+    const totalOrders = events.reduce((sum, event) => sum + event.totalOrders, 0);
+    return { events, totalDrinks, totalOrders, drinksPerOrder: totalOrders ? totalDrinks / totalOrders : null, drinks: drinks.map(drink => ({ ...drink, id: drink.name })), breakdowns: buildDrinkBreakdowns(configurations) };
+  }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
 export async function updatePosEvent(actor: PosActor, eventId: string, input: unknown) {
   admin(actor); const values = eventDates(eventInputSchema.parse(input));
@@ -115,6 +141,10 @@ export async function logPosDrinks(actor: PosActor, input: unknown) {
 export async function voidPosDrinkLog(actor: PosActor, input: unknown) {
   staff(actor); const value = voidInputSchema.parse(input);
   return db.transaction(async tx => {
+    const [entry] = await tx.select({ eventId: posDrinkLogs.eventId }).from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId));
+    if (!entry) throw new PosError('Entry not found.');
+    const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, entry.eventId)).for('update');
+    if (!event) throw new PosError('Event not found.');
     const [log] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId)).for('update');
     if (!log) throw new PosError('Entry not found.'); assertLogOwner(actor, log.recordedBy);
     if (log.voidedAt) return log;
@@ -131,6 +161,10 @@ export async function correctPosDrinkLog(actor: PosActor, input: unknown) {
       if (existing.mutationHash !== mutationHash || existing.replacesLogId !== value.logId) throw new PosError('This correction ID was already used for a different change.');
       assertLogOwner(actor, existing.recordedBy); return existing;
     }
+    const [entry] = await tx.select({ eventId: posDrinkLogs.eventId }).from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId));
+    if (!entry) throw new PosError('Entry not found.');
+    const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, entry.eventId)).for('update');
+    if (!event) throw new PosError('Event not found.');
     const [original] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId)).for('update');
     if (!original) throw new PosError('Entry not found.'); assertLogOwner(actor, original.recordedBy);
     if (original.voidedAt) throw new PosError('This entry already changed. Refresh the recent entries.');

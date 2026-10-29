@@ -41,7 +41,7 @@ pnpm --filter @lattelab/portal build
 
 Open http://localhost:3001. Use `pnpm --filter @lattelab/portal start` to serve a production build locally on the same port.
 
-The portal has no automated test suite yet. Before releasing behavior changes, test sign-in, profile onboarding, registration and cancellation, and affected admin flows with development data. A build does not verify database permissions, email delivery, or authentication providers. See the [verification follow-ups](docs/TODO.md#current-verification-follow-ups) for known checks still needed.
+The POS test commands below cover domain behavior and real database transactions. Other portal flows still need manual checks with development data, including sign-in, profile onboarding, registration and cancellation, and affected admin screens. A build does not verify database permissions, email delivery, or authentication providers. See the [verification follow-ups](docs/TODO.md#current-verification-follow-ups) for known checks still needed.
 
 ## Database work
 
@@ -61,6 +61,12 @@ See [CLAUDE.md](CLAUDE.md) for application rules, the [documentation index](docs
 ## POS order logging and drink analytics
 
 The new POS feature uses separate `pos_` tables. It does not replace event registration or track inventory. Admins create events and menus at `/admin/pos`. Designated staff use `/kiosk` to choose an event and log received orders. Set the comma-separated server-only `POS_STAFF_EMAILS` variable to grant kiosk access without admin access. Staff can view and correct only their own entries. Admins can view reports, export CSV, and correct any entry.
+
+New events start with an empty menu; add each event's drinks manually. Existing menus are preserved. The main POS page combines drink totals and configuration breakdowns across all events and shows counts beside each event. Exact matching recorded drink names are combined; orders are counted separately for each event. Voided entries do not count, and corrections replace their originals.
+
+The kiosk logs one selected drink directly, with no cart, quantity selector, or add-to-order step. Kerb remains optional. Use **Remove entry** to void an accidental entry with one click; it remains in history but leaves analytics. The interface supports one drink per customer interaction; it does not verify customer identity or enforce a per-person redemption limit.
+
+Admins can permanently delete a POS event after typing its current name. Deletion removes that event's menu and all order history, including voids and corrections, and removes its totals from the overview. Kiosk links for deleted events return not found. This feature needs no additional database migration.
 
 Event inputs and reports use Eastern time. Logged timestamps come from the server and measure recorded order activity, not preparation or handoff. Corrections preserve the original order timestamp and audit history. Inventory, payments, and offline queues remain outside this feature.
 
