@@ -178,3 +178,15 @@ Implementation was authorized after this plan was written. The migration was app
 - [x] Verify eight domain tests and twelve real PostgreSQL tests, including overview counts and concurrent deletion. Browser checks used disposable local data: empty menu creation, direct Hot/Oat logging, optional kerb clearing, removal, deletion/cancellation/name mismatch, updated totals, and a not-found kiosk link after deletion. Phone and tablet views had no horizontal overflow; the browser console had no errors.
 
 This follow-up changes no schema and requires no migration. Inventory, payments, legacy registration cleanup, and production deployment monitoring remain outside scope. The user authorized pushing and merging tested changes; production event records were not used for destructive testing.
+
+## Menu archiving and removed-entry privacy follow-up
+
+- [x] Add nullable `archived_at` to menu items, with an additive migration. Remove drink archives the definition and hides it from editing, kiosk ordering, and reordering, while preserving historical logs and analytics.
+- [x] Require admin access and the current menu version for removal. Repeated removal succeeds; stale edits and orders fail. Removal and logging use the same event lock.
+- [x] Hide voided/superseded logs by default on kiosk and admin screens; provide Show removed entries and paginate the selected view.
+- [x] Clear the kerb when voiding a log or superseding it with a correction. Keep valid-order kerbs. Clear existing voided kerbs with the reviewed cleanup migration.
+- [x] Verify 16 real PostgreSQL tests and eight domain tests, covering unchanged analytics, archived-drink correction history, stale requests, concurrent removal/logging, retry identity after redaction, and cleanup that preserves valid kerbs.
+- [x] Verify menu removal and the history toggle on both admin and kiosk through the local browser. A new event started empty; archiving a manually added drink removed it from the kiosk while its valid order remained in reports. Removal hid a log immediately, showing history revealed Kerb cleared, and a valid order kept its kerb after reload. The 390-pixel phone layout had no horizontal overflow and the browser console had no errors.
+- [ ] Apply the two reviewed migrations to the confirmed production project before merging; verify schema and redaction counts without using production orders for UI tests.
+
+The user approved menu archiving, hidden removed logs, kerb clearing on removal, and pushing/merging. Inventory, payments, registration cleanup, and production deployment monitoring remain outside this change.
