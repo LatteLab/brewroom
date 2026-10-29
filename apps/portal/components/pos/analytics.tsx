@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { buildAnalytics, type AnalyticsLog } from '@/lib/pos';
 import type { PosEvent } from '@/lib/db/schema';
+import { PosBreakdowns } from './breakdowns';
 import styles from './pos.module.css';
 
 export function PosAnalytics({ event, logs, interval }: { event: PosEvent; logs: AnalyticsLog[]; interval: 5 | 15 }) {
@@ -14,6 +15,6 @@ export function PosAnalytics({ event, logs, interval }: { event: PosEvent; logs:
     <p className={styles.muted}>Eastern time. {report.intervalMinutes}-minute intervals. Empty intervals count as zero; the chart includes outside-window entries.{report.totalDrinks > 0 && peak ? ` Peak: ${peak.drinks} drinks at ${peak.label}.` : ''}</p>
     <div className={styles.chart} role="img" aria-label={`Drinks per ${report.intervalMinutes}-minute interval. ${report.totalDrinks} drinks recorded.`}>{report.buckets.map(bucket => <div className={styles.barColumn} key={bucket.at} title={`${bucket.label}: ${bucket.drinks} drinks, ${bucket.orders} orders`}><span>{bucket.drinks || ''}</span><div className={styles.bar} style={{ height: `${Math.max(bucket.drinks ? 3 : 0, bucket.drinks / max * 135)}px` }} /><small>{bucket.label}</small></div>)}</div>
     <details className={styles.dataTable}><summary>View chart data as a table</summary><table><thead><tr><th>Interval starts, Eastern</th><th>Drinks</th><th>Orders</th></tr></thead><tbody>{report.buckets.map(bucket => <tr key={bucket.at}><td>{bucket.label}</td><td>{bucket.drinks}</td><td>{bucket.orders}</td></tr>)}</tbody></table></details>
-    <div className={styles.breakdownGrid}><div><h3>Drinks</h3>{report.drinks.length ? report.drinks.map(drink => <p className={styles.breakdownRow} key={drink.id}><span>{drink.name}</span><strong>{drink.count} · {(drink.count / report.totalDrinks * 100).toFixed(0)}%</strong></p>) : <p className={styles.muted}>No orders recorded yet.</p>}</div>{Object.entries(report.breakdowns).map(([name, choices]) => <div key={name}><h3>{name}</h3>{Object.entries(choices).map(([choice, count]) => <p className={styles.breakdownRow} key={choice}><span>{choice}</span><strong>{count} · {(count / report.totalDrinks * 100).toFixed(0)}%</strong></p>)}</div>)}</div>
+    <PosBreakdowns report={report} />
   </section>;
 }
