@@ -1,0 +1,24 @@
+'use client';
+
+import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { correctDrinkLogAction, voidDrinkLogAction } from '@/app/actions/pos';
+import { configurationLabel, formatPosDate } from '@/lib/pos';
+import { defaultMenuOptions, type Configuration } from '@/lib/validations/pos';
+import type { PosDrinkLog } from '@/lib/db/schema';
+import { ConfigurationControls } from './configuration-controls';
+import styles from './pos.module.css';
+
+function LogEditor({ log }: { log: PosDrinkLog }) {
+  const router = useRouter(); const [quantity, setQuantity] = useState(log.quantity); const [configuration, setConfiguration] = useState<Configuration>(log.configuration); const [kerb, setKerb] = useState(log.kerb ?? ''); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [pending, startTransition] = useTransition(); const [mutationId] = useState(() => crypto.randomUUID()); const [held, setHeld] = useState<{ logId: string; mutationId: string; quantity: number; configuration: Configuration; kerb: string; reason: string } | null>(null);
+  return <details className={styles.logEditor}><summary>Correct or void entry</summary><form className={styles.form} onSubmit={e => { e.preventDefault(); setError(''); startTransition(async () => { const request = held ?? { logId: log.id, mutationId, quantity, configuration, kerb, reason }; setHeld(request); try { const result = await correctDrinkLogAction(request); if (!result.ok) { setError(result.error); if (!result.retryable) setHeld(null); return; } router.refresh(); } catch { setError('The connection was interrupted. Retry the same correction to confirm it.'); } }); }}>
+    <p className={styles.muted}>The original order time stays unchanged. Changes keep an audit history.</p><fieldset disabled={pending || held !== null}><ConfigurationControls value={configuration} options={defaultMenuOptions} onChange={setConfiguration} /></fieldset>
+    <div className={styles.twoColumns}><label>Quantity<input disabled={pending || held !== null} required type="number" min={1} max={1000} value={quantity} onChange={e => setQuantity(e.target.valueAsNumber)} /></label><label>MIT kerb, optional<input disabled={pending || held !== null} value={kerb} maxLength={64} onChange={e => setKerb(e.target.value)} /></label></div>
+    <label>Reason<input disabled={pending || held !== null} value={reason} required maxLength={300} onChange={e => setReason(e.target.value)} placeholder="Correcting the milk selection" /></label>
+    {error && <p role="alert" className={styles.error}>{error}</p>}<div className={styles.actions}><button className={styles.primary} type="submit" disabled={pending}>{held ? 'Retry same correction' : 'Save correction'}</button><button className={styles.danger} type="button" disabled={pending || held !== null || !reason.trim()} onClick={() => { startTransition(async () => { try { const result = await voidDrinkLogAction({ logId: log.id, reason }); if (!result.ok) setError(result.error); else router.refresh(); } catch { setError('The connection was interrupted. Retry to confirm the void.'); } }); }}>Void entry</button></div>
+  </form></details>;
+}
+export function RecentLogs({ logs, isAdmin, actorId }: { logs: PosDrinkLog[]; isAdmin: boolean; actorId: string }) {
+  const [visible, setVisible] = useState(20);
+  return <section className={styles.section} aria-labelledby="recent-order-heading"><h2 id="recent-order-heading">{isAdmin ? 'Order log and history' : 'Your recent entries'}</h2><p className={styles.muted}>Recorded order times are shown in Eastern. Voided entries are excluded from analytics.</p>{logs.length === 0 ? <p className={styles.empty}>No entries yet.</p> : <div className={styles.logList}>{logs.slice(0, visible).map(log => <article key={log.id} className={`${styles.log} ${log.voidedAt ? styles.voided : ''}`}><div className={styles.logHeading}><strong>{log.quantity} × {log.drinkName}</strong><time dateTime={new Date(log.recordedAt).toISOString()}>{formatPosDate(log.recordedAt)}</time></div><p>{configurationLabel(log.configuration)}</p><p className={styles.muted}>{log.kerb ? `MIT kerb: ${log.kerb}` : 'Guest · no kerb'} · Order {log.submissionId.slice(0, 8)}{log.replacesLogId ? ' · corrected entry' : ''}</p>{log.voidedAt ? <p className={styles.muted}>Voided {formatPosDate(log.voidedAt)} · {log.voidReason}</p> : (isAdmin || actorId === log.recordedBy) && <LogEditor log={log} />}</article>)}</div>}{logs.length > visible && <button type="button" className={styles.secondary} onClick={() => setVisible(count => count + 20)}>Show more entries</button>}</section>;
+}

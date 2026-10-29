@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Users, LogOut, Settings, Calendar, ArrowRightLeft, Mail } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Settings, Calendar, ArrowRightLeft, Mail, Coffee } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const navItems = [
+  { title: "POS & drinks", url: "/admin/pos", icon: Coffee },
   {
     title: "Dashboard",
     url: "/admin",
