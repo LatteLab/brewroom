@@ -192,5 +192,6 @@ User approved merging all preview work to main without squashing and deploying. 
 ## Team headshots — 2026-10-29
 
 - Added 33 supplied headshots as local optimized WebP assets with responsive next/image loading and blur placeholders. Missing portraits retain illustrations; roster names, roles, and order are unchanged.
-- Alan Duan, Allison Liu, Rozalen Adous, and Trinity Chen have individual framing settings. Other portraits use base framing. Photos include a small transparent beaver in the corner.
+- Alan Duan, Allison Liu, Rozalen Adous, and Trinity Chen have individual framing settings. Other portraits use base framing. Photos include a transparent beaver in the corner.
 - content/team-photos.ts owns the portrait mappings and framing settings. content/asset-sources.json records original Drive IDs and filenames.
+- Enlarged the transparent beaver across the photo edge and white card border, outside the clipped portrait frame. Portrait framing remains unchanged.

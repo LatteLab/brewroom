@@ -713,6 +713,9 @@ h1 em::after {
 .team-card:hover {
   transform: translateY(-5px) rotate(0);
 }
+.team-media {
+  position: relative;
+}
 .team-illustration,
 .team-portrait {
   background: #e2e7d9;
@@ -729,11 +732,10 @@ h1 em::after {
 }
 .team-sticker {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: clamp(32px, 20%, 70px);
+  right: -5px;
+  bottom: -13px;
+  width: clamp(48px, 28%, 100px);
   aspect-ratio: 1;
-  rotate: -9deg;
 }
 .team-sticker img {
   width: 100%;

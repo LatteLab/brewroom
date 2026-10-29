@@ -27,9 +27,9 @@ export default function Team() {
               className={`team-card team-tone-${i % 3}`}
               key={person.name}
             >
-              <div className={photo ? "team-portrait" : "team-illustration"}>
-                {photo ? (
-                  <>
+              <div className="team-media">
+                <div className={photo ? "team-portrait" : "team-illustration"}>
+                  {photo ? (
                     <Image
                       src={photo.image}
                       alt={`Portrait of ${person.name}`}
@@ -45,34 +45,36 @@ export default function Team() {
                         transformOrigin: photo.crop?.origin,
                       }}
                     />
-                    <span className="team-sticker" aria-hidden="true">
+                  ) : (
+                    <>
+                      <span className="team-initials" aria-hidden="true">
+                        {person.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")}
+                      </span>
                       <Image
-                        src="/brand/beaver.webp"
+                        src={`/brand/${person.art}.webp`}
                         alt=""
-                        width={80}
-                        height={80}
-                        sizes="70px"
+                        width={160}
+                        height={160}
+                        sizes="(max-width: 480px) 85px, (max-width: 760px) 100px, 125px"
                         loading={i < 3 ? "eager" : "lazy"}
                       />
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="team-initials" aria-hidden="true">
-                      {person.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </span>
+                    </>
+                  )}
+                </div>
+                {photo && (
+                  <span className="team-sticker" aria-hidden="true">
                     <Image
-                      src={`/brand/${person.art}.webp`}
+                      src="/brand/beaver.webp"
                       alt=""
-                      width={160}
-                      height={160}
-                      sizes="(max-width: 480px) 85px, (max-width: 760px) 100px, 125px"
+                      width={80}
+                      height={80}
+                      sizes="100px"
                       loading={i < 3 ? "eager" : "lazy"}
                     />
-                  </>
+                  </span>
                 )}
               </div>
               <div className="team-label">
