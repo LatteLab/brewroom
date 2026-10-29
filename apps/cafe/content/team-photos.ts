@@ -29,6 +29,7 @@ import scarletGitelson from "@/public/photos/team/scarlet-gitelson.webp";
 import sophiaLee from "@/public/photos/team/sophia-lee.webp";
 import tateWilhelm from "@/public/photos/team/tate-wilhelm.webp";
 import timothyHabashy from "@/public/photos/team/timothy-habashy.webp";
+import toriPark from "@/public/photos/team/tori-park.webp";
 import trinityChen from "@/public/photos/team/trinity-chen.webp";
 import victoriaDang from "@/public/photos/team/victoria-dang.webp";
 import terryKim from "@/public/photos/team/terry-kim.webp";
@@ -77,6 +78,7 @@ export const teamPhotos: Partial<Record<string, TeamPhoto>> = {
   "Sophia Lee": { image: sophiaLee },
   "Tate Wilhelm": { image: tateWilhelm },
   "Timothy Habashy": { image: timothyHabashy },
+  "Tori Park": { image: toriPark },
   "Trinity Chen": { image: trinityChen, objectPosition: "center 70%" },
   "Victoria Dang": { image: victoriaDang },
   "Terry Kim": { image: terryKim },
