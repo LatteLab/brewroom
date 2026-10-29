@@ -78,6 +78,40 @@ test('menu removal racing an order either records once before removal or rejects
     await assert.rejects(queries.logPosDrinks(staff, { ...input, submissionId: randomUUID() }), /no longer available/);
   }
 });
+test('removal clears kerbs, preserves valid orders and retry identity, and also clears correction history', async () => {
+  const { event, input } = await fixture();
+  const request = { ...input, kerb: 'originalkerb' };
+  const [original] = await queries.logPosDrinks(staff, request);
+  const [untouched] = await queries.logPosDrinks(staff, { ...input, submissionId: randomUUID(), kerb: 'validkerb' });
+  const correction = { logId: original.id, mutationId: randomUUID(), configuration: original.configuration, quantity: original.quantity, kerb: 'correctedkerb', reason: 'Fix kerb' };
+  const replacement = await queries.correctPosDrinkLog(staff, correction);
+  let history = await queries.getPosLogs(admin, event.id, true);
+  assert.equal(history.find(log => log.id === original.id)?.kerb, null);
+  assert.equal(history.find(log => log.id === replacement.id)?.kerb, 'correctedkerb');
+  await assert.rejects(queries.voidPosDrinkLog({ ...staff, id: 'another-staff' }, { logId: replacement.id, reason: 'Accidental entry removed' }), /only your own/);
+  await queries.voidPosDrinkLog(staff, { logId: replacement.id, reason: 'Accidental entry removed' });
+  await queries.voidPosDrinkLog(staff, { logId: replacement.id, reason: 'Accidental entry removed' });
+  history = await queries.getPosLogs(admin, event.id, true);
+  assert(history.filter(log => log.voidedAt).every(log => log.kerb === null));
+  assert.equal(history.find(log => log.id === untouched.id)?.kerb, 'validkerb');
+  assert.equal((await queries.logPosDrinks(staff, request))[0].id, original.id);
+  assert.equal((await queries.correctPosDrinkLog(staff, correction)).kerb, null);
+  assert.deepEqual((await queries.getPosReport(admin, event.id)).map(log => log.id), [untouched.id]);
+});
+test('the cleanup migration clears existing voided kerbs without changing valid kerbs or totals', async () => {
+  const { event, input } = await fixture();
+  const [removed] = await queries.logPosDrinks(staff, { ...input, kerb: 'legacyremoved' });
+  const [valid] = await queries.logPosDrinks(staff, { ...input, submissionId: randomUUID(), kerb: 'keepvalid' });
+  await client`UPDATE pos_drink_logs SET voided_at=now(), voided_by=${staff.id}, void_reason='Accidental entry removed' WHERE id=${removed.id}`;
+  const migration = await readFile(new URL('../lib/db/migrations/20261029225111_pos_removed_log_kerbs.sql', import.meta.url), 'utf8');
+  const before = await queries.getPosOverview(admin);
+  await client.unsafe(migration); await client.unsafe(migration);
+  const history = await queries.getPosLogs(admin, event.id, true);
+  assert.equal(history.find(log => log.id === removed.id)?.kerb, null);
+  assert.equal(history.find(log => log.id === valid.id)?.kerb, 'keepvalid');
+  const after = await queries.getPosOverview(admin);
+  assert.equal(after.totalDrinks, before.totalDrinks); assert.equal(after.totalOrders, before.totalOrders);
+});
 test('overview combines valid drinks and counts orders separately for each event', async () => {
   await assert.rejects(queries.getPosOverview(staff), /Administrator/);
   const before = await queries.getPosOverview(admin);

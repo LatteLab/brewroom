@@ -160,8 +160,12 @@ export async function voidPosDrinkLog(actor: PosActor, input: unknown) {
     if (!event) throw new PosError('Event not found.');
     const [log] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId)).for('update');
     if (!log) throw new PosError('Entry not found.'); assertLogOwner(actor, log.recordedBy);
-    if (log.voidedAt) return log;
-    const [voided] = await tx.update(posDrinkLogs).set({ voidedAt: new Date(), voidedBy: actor.id, voidReason: value.reason }).where(eq(posDrinkLogs.id, log.id)).returning();
+    if (log.voidedAt) {
+      if (log.kerb === null) return log;
+      const [cleared] = await tx.update(posDrinkLogs).set({ kerb: null }).where(eq(posDrinkLogs.id, log.id)).returning();
+      return cleared;
+    }
+    const [voided] = await tx.update(posDrinkLogs).set({ voidedAt: new Date(), voidedBy: actor.id, voidReason: value.reason, kerb: null }).where(eq(posDrinkLogs.id, log.id)).returning();
     return voided;
   });
 }
@@ -183,7 +187,7 @@ export async function correctPosDrinkLog(actor: PosActor, input: unknown) {
     if (original.voidedAt) throw new PosError('This entry already changed. Refresh the recent entries.');
     const [menuItem] = await tx.select().from(posMenuItems).where(eq(posMenuItems.id, original.menuItemId));
     if (hash(value.configuration) !== hash(configurationSchema.parse(original.configuration)) && (!menuItem || !configurationAllowed(menuItem.options, value.configuration))) throw new PosError('The corrected choices are not supported by this drink.');
-    await tx.update(posDrinkLogs).set({ voidedAt: new Date(), voidedBy: actor.id, voidReason: value.reason }).where(eq(posDrinkLogs.id, original.id));
+    await tx.update(posDrinkLogs).set({ voidedAt: new Date(), voidedBy: actor.id, voidReason: value.reason, kerb: null }).where(eq(posDrinkLogs.id, original.id));
     const replacement: typeof posDrinkLogs.$inferInsert = {
       eventId: original.eventId, menuItemId: original.menuItemId, menuVersion: original.menuVersion, drinkName: original.drinkName,
       configuration: value.configuration, quantity: value.quantity, submissionId: original.submissionId, lineIndex: original.lineIndex,
