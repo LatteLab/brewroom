@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { GripVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { reorderPosMenuAction, savePosMenuItemAction } from '@/app/actions/pos';
+import { removePosMenuItemAction, reorderPosMenuAction, savePosMenuItemAction } from '@/app/actions/pos';
 import { defaultMenuOptions, iceLevels, milks, syrups, temperatures, type MenuOptions } from '@/lib/validations/pos';
 import type { PosMenuItem } from '@/lib/db/schema';
 import { ConfigurationControls } from './configuration-controls';
@@ -33,7 +33,19 @@ function MenuItemForm({ eventId, item }: { eventId: string; item?: PosMenuItem }
     <Choices label="Syrup" all={syrups} values={options.syrups} change={syrups => setOptions(normalizeDefaults({ ...options, syrups }))} />
     <Choices label="Ice" all={iceLevels} values={options.iceLevels} change={iceLevels => setOptions(normalizeDefaults({ ...options, iceLevels }))} />
     <h4>Default configuration</h4><ConfigurationControls options={options} value={options.defaults} onChange={defaults => setOptions({ ...options, defaults })} />
-    {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status">{message}</p>}<button type="submit" disabled={pending} className={styles.primary}>{pending ? 'Saving…' : 'Save drink'}</button>
+    {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status">{message}</p>}<div className={styles.actions}><button type="submit" disabled={pending} className={styles.primary}>{pending ? 'Working…' : 'Save drink'}</button>
+      {item && <button type="button" disabled={pending} className={styles.danger} aria-label={`Remove ${item.name} from menu`} onClick={() => {
+        if (!window.confirm(`Remove “${item.name}” from this event’s menu? Past orders and analytics will be kept.`)) return;
+        setError(''); setMessage('');
+        startTransition(async () => {
+          try {
+            const result = await removePosMenuItemAction({ eventId, id: item.id, expectedVersion: item.version });
+            if (!result.ok) { setError(result.error); return; }
+            router.refresh();
+          } catch { setError('Could not confirm removal. Retry to check and remove this drink.'); }
+        });
+      }}>Remove drink</button>}
+    </div>
   </form></details>;
 }
 function SortableDrink({ eventId, item, pending, move, save }: { eventId: string; item: PosMenuItem; pending: boolean; move: (direction: -1 | 1) => void; save: () => void }) {
@@ -72,6 +84,8 @@ export function MenuEditor({ eventId, menu }: { eventId: string; menu: PosMenuIt
     [next[index], next[target]] = [next[target], next[index]]; setItems(next); save(next);
   }
   return <section className={styles.section}><h2>Event menu</h2><p className={styles.muted}>Edit drink names, choices, and defaults here. Changes apply to new orders; existing entries keep their original specifications.</p>
+    {items.length === 0 && <p className={styles.empty}>This menu is empty. Add a drink below to start taking orders.</p>}
+    <p className={styles.muted}>Remove a drink to take it off this event’s menu and kiosk. Past orders and analytics are kept.</p>
     <p id="menu-reorder-help" className={styles.muted}>Drag a drink’s handle to change its kiosk position. With a handle focused, use the up and down arrow keys. Order saves automatically.</p>
     <Reorder.Group axis="y" values={items} onReorder={setItems} className={styles.menuOrder} aria-label="Drinks in kiosk order">{items.map(item => <SortableDrink key={item.id} eventId={eventId} item={item} pending={pending} move={direction => move(item.id, direction)} save={() => save()} />)}</Reorder.Group>
     <p role="status" className={styles.muted}>{pending ? 'Saving menu order…' : message}</p>{error && <p role="alert" className={styles.error}>{error}</p>}
