@@ -195,3 +195,4 @@ User approved merging all preview work to main without squashing and deploying. 
 - Alan Duan, Allison Liu, Rozalen Adous, and Trinity Chen have individual framing settings. Other portraits use base framing. Photos include a transparent beaver in the corner.
 - content/team-photos.ts owns the portrait mappings and framing settings. content/asset-sources.json records original Drive IDs and filenames.
 - Enlarged the transparent beaver across the photo edge and white card border, outside the clipped portrait frame. Portrait framing remains unchanged.
+- Added Tori Park’s supplied portrait as the 34th team photo. Megan Huang and Michelle Su retain illustrations.
