@@ -48,6 +48,9 @@
 .drinkSummary h3 { font-size:15px; font-weight:600; overflow-wrap:anywhere; }
 .drinkSummary p { font-size:12px; color:#697264; line-height:1.8; margin:7px 0 18px; }
 .logControls { margin-top:12px; }
+.historyToggle { display:flex; align-items:center; gap:9px; min-height:44px; font-size:12px; flex-shrink:0; cursor:pointer; }
+.historyToggle input { width:18px; height:18px; accent-color:#354e37; }
+.historyToggle input:focus-visible { outline:3px solid #a47d43; outline-offset:3px; }
 .receiptBottom>div { display:flex; justify-content:space-between; font-size:12px; margin-bottom:14px; }
 .receiptBottom>p { font-size:9px; text-align:center; color:#697264; margin-top:12px; }
 .receiptBottom .primary { width:100%; display:flex; justify-content:space-between; align-items:center; }

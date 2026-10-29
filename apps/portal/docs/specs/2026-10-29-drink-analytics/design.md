@@ -23,6 +23,8 @@ This version excludes inventory, payments, pre-orders, customer accounts, regist
 - An MIT kerb is optional. A blank kerb never blocks an order and does not require a customer user record.
 - The kiosk logs one drink directly after customization, without a cart or quantity control. Kerb stays optional; this does not enforce identity or a one-redemption-per-person limit.
 - A visible one-click Remove entry action voids accidental records without a confirmation dialog or typed reason. The server records the reason as `Accidental entry removed`; normal ownership checks still apply.
+- Removed and superseded logs are hidden by default, with a Show removed entries toggle. Their kerbs are cleared; valid-order kerbs remain optional and are retained.
+- Removing a menu drink archives it, hiding it from the event menu and kiosk while preserving historical orders and analytics. Temporary unavailability is separate from removal.
 - Reports show event drink totals, configuration breakdowns, and time spikes in recorded order activity, plus an overall POS overview across all events.
 - Admins can permanently delete a POS event after typing its current name. This deletes its menu and all order history and removes its counts from analytics.
 
@@ -43,7 +45,7 @@ Use `pos_events`, `pos_event_menu_items`, and `pos_drink_logs` while the old reg
 | Table | Proposed fields |
 | --- | --- |
 | `pos_events` | UUID `id`, `name`, `starts_at`, `ends_at`, creator, creation/update timestamps |
-| `pos_event_menu_items` | UUID `id`, `event_id`, `name`, JSONB option definitions/defaults, `available`, `sort_order`, `version` |
+| `pos_event_menu_items` | UUID `id`, `event_id`, `name`, JSONB option definitions/defaults, `available`, nullable `archived_at`, `sort_order`, `version` |
 | `pos_drink_logs` | UUID `id`, `event_id`, `menu_item_id`, `menu_version`, name/specification snapshots, positive `quantity`, `submission_id`, `line_index`, `request_hash`, `recorded_at`, recorder, optional `kerb`, void and replacement metadata |
 
 An event requires a nonblank name and `ends_at > starts_at`. Its timestamps use `timestamptz`. No separate date, event timezone, or event-status column is needed initially.
@@ -78,7 +80,7 @@ Check an existing submission before applying new menu-version or availability ch
 
 ## Corrections preserve order history
 
-Original request rows and timestamps remain intact. Undo sets void metadata with actor, reason, and operation time. Correcting an entry atomically voids its current row and inserts a replacement linked by `replaces_log_id`.
+Original row IDs, request hashes, and timestamps remain intact for retries. Removal sets void metadata with actor, reason, and operation time, and clears the kerb. Correcting an entry atomically voids its current row, clears that superseded row's kerb, and inserts a replacement linked by `replaces_log_id`. The valid replacement keeps its submitted optional kerb. The cleanup migration clears kerbs on already-voided records without changing valid entries or analytics totals.
 
 The replacement preserves the original `submission_id`, `line_index`, `recorded_at`, and recorder. Its new UUID and unique correction `mutation_id` identify the correction operation. The old row's void metadata records when and by whom the correction occurred. No client can supply an arbitrary order timestamp.
 
@@ -101,6 +103,10 @@ Proposed portal routes are `/admin/pos`, `/admin/pos/new`, and `/admin/pos/[even
 Staff can rename drinks, choose supported options/defaults, reorder items, and mark items unavailable within an event. Drag handles set kiosk order and save automatically; focused handles also support up and down arrow keys. Numeric positions are internal, and new drinks append to the menu. Reordering checks the complete event menu and its previous order under the event lock, so a stale editor cannot overwrite a newer order. It does not change drink configuration versions. Copying menus between events is out of scope. The kiosk shows the selected configuration directly in its summary; Log drink saves it without an add-to-order step. Disable repeat clicks while a save is pending, but rely on database uniqueness for retry protection.
 
 The overview shows total drinks, orders, event count, drinks per order, drink/option breakdowns, and counts beside each event. Group drinks by exact recorded name across events. Count distinct submissions within each event, then sum those counts, so reused IDs across events remain separate orders. Read event totals, drink totals, and configuration totals in a repeatable-read, read-only transaction; aggregate in SQL without fetching all identities or raw logs. Do not calculate an average order gap across unrelated events.
+
+Menu removal sets `archived_at`, marks the drink unavailable, and increments its version under the event lock. Queries for the menu, ordering, and reordering exclude archived items. A repeated removal succeeds; stale edits cannot restore an archived drink. Historical logs retain their foreign key and snapshots, and corrections can still reference that drink. No automatic archive or menu copy runs when creating an event.
+
+Both kiosk and admin order lists default to active logs. Show removed entries includes voids and superseded correction rows without changing analytics. Toggling resets the visible list to its first 20 entries; Show more entries paginates the selected view. Voided rows display Kerb cleared rather than identifying the customer as a guest.
 
 Delete controls appear on the overview and event page. The confirmation explains permanent loss of menu and complete history, removal from analytics, and broken kiosk links. The server checks the current event name under its lock; a stale name is rejected. Repeating deletion of an already absent event succeeds. Existing events are never deleted automatically.
 
