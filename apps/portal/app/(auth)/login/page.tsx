@@ -77,12 +77,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
           {/* OAuth Buttons */}
           <div className="space-y-3">
-            <OAuthButtons />
+            <OAuthButtons callbackUrl={params.callbackUrl} />
           </div>
 
           {/* TODO: Uncomment when Magic Link is enabled */}
           {/* <Divider text="or" /> */}
-          {/* <MagicLinkForm /> */}
+          {/* <MagicLinkForm callbackUrl={params.callbackUrl} /> */}
 
           {/* Terms */}
           <p className="mt-8 text-sm text-zinc-500 dark:text-zinc-400">

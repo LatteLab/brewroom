@@ -16,7 +16,7 @@ const magicLinkSchema = z.object({
 
 type MagicLinkFormData = z.infer<typeof magicLinkSchema>;
 
-export function MagicLinkForm() {
+export function MagicLinkForm({ callbackUrl = '/' }: { callbackUrl?: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');
@@ -36,7 +36,7 @@ export function MagicLinkForm() {
       const result = await signIn('resend', {
         email: data.email,
         redirect: false,
-        callbackUrl: '/user',
+        callbackUrl,
       });
 
       if (result?.error) {
