@@ -21,8 +21,8 @@ const outsider = { id: 'outsider', email: 'no-access@example.invalid', isAdmin: 
 before(async () => {
   await client.unsafe('DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
   await client.unsafe(`CREATE TABLE users (id text PRIMARY KEY, email text UNIQUE); INSERT INTO users VALUES ('pos-test-admin','pos-admin@example.invalid'),('pos-test-staff','pos-staff@example.invalid');`);
-  const migration = (await readdir(new URL('../lib/db/migrations/', import.meta.url))).find(name => name.endsWith('_pos_drink_analytics.sql'));
-  assert(migration); await client.unsafe(await readFile(new URL(`../lib/db/migrations/${migration}`, import.meta.url), 'utf8'));
+  const migrations = (await readdir(new URL('../lib/db/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
+  assert(migrations.length); for (const migration of migrations) await client.unsafe(await readFile(new URL(`../lib/db/migrations/${migration}`, import.meta.url), 'utf8'));
   queries = await import('../lib/db/pos-queries'); database = await import('../lib/db/index');
 });
 after(async () => { await database?.db.$client.end(); await client.end(); });
@@ -35,6 +35,48 @@ async function fixture() {
 test('new POS events start with an empty menu', async () => {
   const event = await queries.createPosEvent(admin, { name: 'Empty menu event', startsAt: '2026-10-01T10:00', endsAt: '2026-10-01T15:00' });
   assert.deepEqual(await queries.getPosMenu(admin, event.id), []);
+});
+test('removing a menu drink hides it, preserves orders, and rejects stale editors and new orders', async () => {
+  const { event, item, menu, input } = await fixture(); const other = await fixture();
+  const [log] = await queries.logPosDrinks(staff, input);
+  const request = { eventId: event.id, id: item.id, expectedVersion: item.version };
+  await assert.rejects(queries.removePosMenuItem(staff, request), /Administrator/);
+  await assert.rejects(queries.removePosMenuItem(admin, { ...request, eventId: other.event.id }), /not found in this event/);
+  const edited = await queries.savePosMenuItem(admin, { eventId: event.id, id: item.id, expectedVersion: item.version, name: 'Updated drink', options: item.options, available: false });
+  await assert.rejects(queries.removePosMenuItem(admin, request), /menu changed/);
+  assert.equal((await queries.getPosMenu(admin, event.id)).length, 2);
+  const current = { ...request, expectedVersion: edited.version };
+  const before = await queries.getPosOverview(admin);
+  await queries.removePosMenuItem(admin, current); await queries.removePosMenuItem(admin, current);
+  assert.deepEqual((await queries.getPosMenu(staff, event.id)).map(drink => drink.id), [menu[1].id]);
+  assert.equal((await queries.getPosReport(admin, event.id))[0].drinkName, item.name);
+  assert.equal((await queries.logPosDrinks(staff, input))[0].id, log.id);
+  await assert.rejects(queries.logPosDrinks(staff, { ...input, submissionId: randomUUID() }), /no longer available/);
+  await assert.rejects(queries.savePosMenuItem(admin, { eventId: event.id, id: item.id, expectedVersion: edited.version + 1, name: 'Restore by stale form', options: item.options, available: true }), /menu changed/);
+  await assert.rejects(queries.reorderPosMenu(admin, { eventId: event.id, itemIds: menu.map(drink => drink.id), expectedItemIds: menu.map(drink => drink.id) }), /menu changed/);
+  const corrected = await queries.correctPosDrinkLog(staff, { logId: log.id, mutationId: randomUUID(), configuration: log.configuration, quantity: log.quantity, kerb: 'corrected', reason: 'Fix kerb' });
+  assert.equal(corrected.quantity, log.quantity);
+  const after = await queries.getPosOverview(admin);
+  assert.equal(after.totalDrinks, before.totalDrinks); assert.equal(after.totalOrders, before.totalOrders);
+  await queries.removePosMenuItem(admin, { eventId: event.id, id: menu[1].id, expectedVersion: menu[1].version });
+  assert.deepEqual(await queries.getPosMenu(admin, event.id), []);
+  await queries.deletePosEvent(admin, { eventId: event.id, nameConfirmation: event.name });
+  assert.equal(await queries.getPosEvent(admin, event.id), null);
+});
+test('menu removal racing an order either records once before removal or rejects it', async () => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { event, item, input } = await fixture();
+    const results = await Promise.allSettled([
+      queries.removePosMenuItem(admin, { eventId: event.id, id: item.id, expectedVersion: item.version }),
+      queries.logPosDrinks(staff, input),
+    ]);
+    assert.equal(results[0].status, 'fulfilled');
+    const logs = await queries.getPosReport(admin, event.id);
+    if (results[1].status === 'fulfilled') assert.equal(logs.length, 1);
+    else { assert.match(String(results[1].reason), /no longer available/); assert.equal(logs.length, 0); }
+    assert(!(await queries.getPosMenu(admin, event.id)).some(drink => drink.id === item.id));
+    await assert.rejects(queries.logPosDrinks(staff, { ...input, submissionId: randomUUID() }), /no longer available/);
+  }
 });
 test('overview combines valid drinks and counts orders separately for each event', async () => {
   await assert.rejects(queries.getPosOverview(staff), /Administrator/);

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { db } from './index';
 import { posEvents, posMenuItems, posDrinkLogs, type PosDrinkLog } from './schema';
 import { PosError, assertLogOwner, buildDrinkBreakdowns, easternInstant, posStaffAllowed, type PosActor } from '../pos';
-import { configurationAllowed, configurationSchema, correctionInputSchema, deleteEventSchema, eventInputSchema, logInputSchema, menuInputSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
+import { configurationAllowed, configurationSchema, correctionInputSchema, deleteEventSchema, eventInputSchema, logInputSchema, menuInputSchema, removeMenuItemSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
 
 function staff(actor: PosActor) {
   if (!posStaffAllowed(actor, process.env.POS_STAFF_EMAILS ?? '')) throw new PosError('POS access is required.');
@@ -30,7 +30,7 @@ export async function getPosEvent(actor: PosActor, eventId: string) {
 }
 export async function getPosMenu(actor: PosActor, eventId: string) {
   staff(actor);
-  return db.select().from(posMenuItems).where(eq(posMenuItems.eventId, uuid(eventId))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
+  return db.select().from(posMenuItems).where(and(eq(posMenuItems.eventId, uuid(eventId)), isNull(posMenuItems.archivedAt))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
 }
 export async function getPosLogs(actor: PosActor, eventId: string, includeHistory = false) {
   staff(actor);
@@ -89,22 +89,35 @@ export async function savePosMenuItem(actor: PosActor, input: unknown) {
     if (!event) throw new PosError('Event not found.');
     if (value.id) {
       if (!value.expectedVersion) throw new PosError('Refresh the menu before editing.');
-      const [item] = await tx.update(posMenuItems).set({ name: value.name, options: value.options, available: value.available, version: value.expectedVersion + 1 }).where(and(eq(posMenuItems.id, value.id), eq(posMenuItems.eventId, value.eventId), eq(posMenuItems.version, value.expectedVersion))).returning();
+      const [item] = await tx.update(posMenuItems).set({ name: value.name, options: value.options, available: value.available, version: value.expectedVersion + 1 }).where(and(eq(posMenuItems.id, value.id), eq(posMenuItems.eventId, value.eventId), eq(posMenuItems.version, value.expectedVersion), isNull(posMenuItems.archivedAt))).returning();
       if (!item) throw new PosError('The menu changed. Refresh before saving again.');
       return item;
     }
-    const existing = await tx.select({ sortOrder: posMenuItems.sortOrder }).from(posMenuItems).where(eq(posMenuItems.eventId, value.eventId));
+    const existing = await tx.select({ sortOrder: posMenuItems.sortOrder }).from(posMenuItems).where(and(eq(posMenuItems.eventId, value.eventId), isNull(posMenuItems.archivedAt)));
     const sortOrder = Math.max(-1, ...existing.map(item => item.sortOrder)) + 1;
     const [item] = await tx.insert(posMenuItems).values({ eventId: value.eventId, name: value.name, options: value.options, available: value.available, sortOrder }).returning();
     return item;
   });
+}
+export async function removePosMenuItem(actor: PosActor, input: unknown) {
+  admin(actor); const value = removeMenuItemSchema.parse(input);
+  await db.transaction(async tx => {
+    const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
+    if (!event) throw new PosError('Event not found.');
+    const [item] = await tx.select().from(posMenuItems).where(and(eq(posMenuItems.eventId, value.eventId), eq(posMenuItems.id, value.id)));
+    if (!item) throw new PosError('Drink not found in this event.');
+    if (item.archivedAt) return;
+    if (item.version !== value.expectedVersion) throw new PosError('The menu changed. Refresh before removing this drink.');
+    await tx.update(posMenuItems).set({ archivedAt: new Date(), available: false, version: item.version + 1 }).where(eq(posMenuItems.id, item.id));
+  });
+  return value.eventId;
 }
 export async function reorderPosMenu(actor: PosActor, input: unknown) {
   admin(actor); const value = reorderMenuSchema.parse(input);
   await db.transaction(async tx => {
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
-    const items = await tx.select({ id: posMenuItems.id }).from(posMenuItems).where(eq(posMenuItems.eventId, value.eventId)).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
+    const items = await tx.select({ id: posMenuItems.id }).from(posMenuItems).where(and(eq(posMenuItems.eventId, value.eventId), isNull(posMenuItems.archivedAt))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
     if (items.length !== value.itemIds.length || items.some(item => !value.itemIds.includes(item.id))) throw new PosError('The menu changed. Refresh before reordering.');
     if (items.every((item, index) => item.id === value.itemIds[index])) return;
     if (items.length !== value.expectedItemIds.length || items.some((item, index) => item.id !== value.expectedItemIds[index])) throw new PosError('The menu order changed. Refresh before reordering.');
@@ -127,7 +140,7 @@ export async function logPosDrinks(actor: PosActor, input: unknown) {
     }
     const [clock] = await tx.execute(sql`select clock_timestamp() as now`); const now = z.coerce.date().parse(clock.now);
     if ((now < event.startsAt || now >= event.endsAt) && !value.outsideWindowConfirmed) throw new PosError('This event is outside its scheduled window. Confirm to record the order at the current time.');
-    const menu = await tx.select().from(posMenuItems).where(eq(posMenuItems.eventId, value.eventId));
+    const menu = await tx.select().from(posMenuItems).where(and(eq(posMenuItems.eventId, value.eventId), isNull(posMenuItems.archivedAt)));
     const lines = value.lines.map((line, lineIndex) => {
       const item = menu.find(item => item.id === line.menuItemId);
       if (!item || !item.available) throw new PosError('A selected drink is no longer available. Refresh the menu.');

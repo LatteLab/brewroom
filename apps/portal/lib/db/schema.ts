@@ -266,6 +266,7 @@ export const posMenuItems = pgTable('pos_event_menu_items', {
   name: text('name').notNull(),
   options: jsonb('options').$type<MenuOptions>().notNull(),
   available: boolean('available').default(true).notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
   sortOrder: integer('sort_order').default(0).notNull(),
   version: integer('version').default(1).notNull(),
 }, table => [unique('pos_menu_event_id').on(table.eventId, table.id), index('pos_menu_sort').on(table.eventId, table.sortOrder), check('pos_menu_version', sql`${table.version} > 0`)]).enableRLS();

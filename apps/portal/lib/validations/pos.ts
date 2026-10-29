@@ -50,6 +50,7 @@ export const reorderMenuSchema = z.object({
     if (new Set(value[field]).size !== value[field].length) context.addIssue({ code: 'custom', message: 'Each drink must appear exactly once.', path: [field] });
   }
 });
+export const removeMenuItemSchema = menuInputSchema.pick({ eventId: true, id: true, expectedVersion: true }).required();
 export const quantitySchema = z.number().int().min(1).max(1000);
 const lineSchema = z.object({ menuItemId: z.uuid(), menuVersion: z.number().int().positive(), configuration: configurationSchema, quantity: quantitySchema }).strict();
 export const logInputSchema = z.object({
