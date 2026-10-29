@@ -5,13 +5,13 @@ import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-export function OAuthButtons() {
+export function OAuthButtons({ callbackUrl = '/' }: { callbackUrl?: string }) {
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
 
   const handleOAuthSignIn = async (provider: string) => {
     setLoadingProvider(provider);
     try {
-      await signIn(provider, { callbackUrl: '/user' });
+      await signIn(provider, { callbackUrl });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Failed to sign in with ${provider}`);
       setLoadingProvider(null);
