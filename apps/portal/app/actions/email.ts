@@ -21,7 +21,7 @@ import {
   getBlastRecipients,
 } from '@/lib/db/email-queries';
 import { getEventById } from '@/lib/db/event-queries';
-import { getUserById } from '@/lib/db/queries';
+import { getUserById } from '@/lib/db/user-queries';
 import { createEmailBlastSchema } from '@/lib/validations/email';
 import { renderBlastEmail, resolveMergeFields } from '@/lib/emails/blast-template';
 import type { AudienceFilter } from '@/lib/types/email';

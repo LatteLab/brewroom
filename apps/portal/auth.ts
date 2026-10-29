@@ -5,7 +5,8 @@ import Resend from 'next-auth/providers/resend';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { db } from '@/lib/db';
 import { users, accounts, verificationTokens } from '@/lib/db/schema';
-import { isAdmin, isProfileComplete, applyProfileSeed } from '@/lib/db/queries';
+import { isAdmin } from '@/lib/db/admin-queries';
+import { isProfileComplete, applyProfileSeed } from '@/lib/db/user-queries';
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {

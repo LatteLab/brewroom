@@ -20,7 +20,8 @@ const client = postgres(connectionString, {
 export const db = drizzle(client, { schema });
 
 // Export all query functions
-export * from './queries';
+export * from './admin-queries';
+export * from './user-queries';
 export * from './schema';
 export * from './event-queries';
 export * from './email-queries';

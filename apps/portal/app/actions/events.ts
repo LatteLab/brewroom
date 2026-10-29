@@ -41,7 +41,7 @@ import {
   createEventEditLogEntry,
   getEventEditLog as dbGetEventEditLog,
 } from '@/lib/db/event-queries';
-import { getUserById } from '@/lib/db/queries';
+import { getUserById } from '@/lib/db/user-queries';
 import { createEventSchema, updateEventSchema } from '@/lib/validations/events';
 import { weightedSelectWithSeats, buildLotteryPool } from '@/lib/utils/lottery';
 
