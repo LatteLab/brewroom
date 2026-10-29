@@ -4,6 +4,7 @@ import { PosError } from '@/lib/pos';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { requirePosActor } from '@/lib/pos-access';
+import { singleDrinkInputSchema } from '@/lib/validations/pos';
 import { createPosEvent, deletePosEvent, updatePosEvent, getPosMenu, savePosMenuItem, reorderPosMenu, logPosDrinks, voidPosDrinkLog, correctPosDrinkLog } from '@/lib/db/pos-queries';
 
 function failure(error: unknown) {
@@ -29,7 +30,7 @@ export async function reorderPosMenuAction(input: unknown) {
   try { const eventId = await reorderPosMenu(await requirePosActor(true), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
 }
 export async function logDrinksAction(input: unknown) {
-  try { const logs = await logPosDrinks(await requirePosActor(), input); if (logs[0]) refresh(logs[0].eventId); return { ok: true as const, logs }; } catch (error) { return failure(error); }
+  try { const actor = await requirePosActor(); const logs = await logPosDrinks(actor, singleDrinkInputSchema.parse(input)); if (logs[0]) refresh(logs[0].eventId); return { ok: true as const, logs }; } catch (error) { return failure(error); }
 }
 export async function voidDrinkLogAction(input: unknown) {
   try { const log = await voidPosDrinkLog(await requirePosActor(), input); refresh(log.eventId); return { ok: true as const }; } catch (error) { return failure(error); }

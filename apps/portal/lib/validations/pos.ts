@@ -57,6 +57,8 @@ export const logInputSchema = z.object({
   kerb: z.string().trim().max(64).nullable().optional(), outsideWindowConfirmed: z.boolean().default(false),
 }).strict();
 export type LogInput = z.infer<typeof logInputSchema>;
+export const singleDrinkInputSchema = logInputSchema.extend({ lines: z.tuple([lineSchema.extend({ quantity: z.literal(1) })]) });
+export type SingleDrinkInput = z.infer<typeof singleDrinkInputSchema>;
 export const correctionInputSchema = z.object({
   logId: z.uuid(), mutationId: z.uuid(), configuration: configurationSchema,
   quantity: quantitySchema, kerb: z.string().trim().max(64).nullable().optional(),

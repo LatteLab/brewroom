@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { configurationSchema, defaultMenuOptions, menuOptionsSchema, logInputSchema, quantitySchema } from '../lib/validations/pos';
+import { configurationSchema, defaultMenuOptions, menuOptionsSchema, logInputSchema, quantitySchema, singleDrinkInputSchema } from '../lib/validations/pos';
 import { easternInstant, easternInput, posStaffAllowed, assertLogOwner, buildAnalytics, logsCsv, type AnalyticsLog } from '../lib/pos';
 
 test('Eastern date entry respects summer/winter and rejects DST gaps/repeats', () => {
@@ -27,11 +27,20 @@ test('POS membership is explicit and staff can modify only their own entries', (
   assert.throws(() => assertLogOwner(staff, 'another'), /only your own/);
   assert.doesNotThrow(() => assertLogOwner(staff, 'staff'));
 });
-test('drink quantities preserve exact sums and reject an overflowing cart line', () => {
+test('historical quantities and corrections remain bounded positive integers', () => {
   assert.equal(quantitySchema.parse(995 + 5), 1000);
   assert.equal(quantitySchema.safeParse(995 + 10).success, false);
   assert.equal(quantitySchema.safeParse(0).success, false);
   assert.equal(quantitySchema.safeParse(1.5).success, false);
+});
+test('the kiosk accepts exactly one drink per submission, with an optional kerb', () => {
+  const line = { menuItemId: randomUUID(), menuVersion: 1, configuration: defaultMenuOptions.defaults, quantity: 1 };
+  const input = { eventId: randomUUID(), submissionId: randomUUID(), lines: [line] };
+  assert.equal(singleDrinkInputSchema.safeParse(input).success, true);
+  assert.equal(singleDrinkInputSchema.parse({ ...input, kerb: '  jdoe  ' }).kerb, 'jdoe');
+  assert.equal(singleDrinkInputSchema.safeParse({ ...input, lines: [] }).success, false);
+  assert.equal(singleDrinkInputSchema.safeParse({ ...input, lines: [line, line] }).success, false);
+  assert.equal(singleDrinkInputSchema.safeParse({ ...input, lines: [{ ...line, quantity: 2 }] }).success, false);
 });
 test('analytics sum drinks separately from orders and include zero/outside/DST buckets', () => {
   const orderId = randomUUID();
