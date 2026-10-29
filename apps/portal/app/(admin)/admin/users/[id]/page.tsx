@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { getUserById } from '@/lib/db/queries';
+import { getUserById } from '@/lib/db/user-queries';
 import { getUserEventHistory, getUserLotteryStats, getUserNoShowCount } from '@/lib/db/event-queries';
 import { PageHeader } from '@/components/ui/page-header';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';

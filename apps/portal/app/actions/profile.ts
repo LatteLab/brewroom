@@ -3,7 +3,7 @@
 import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { getUserById } from '@/lib/db/queries';
+import { getUserById } from '@/lib/db/user-queries';
 import { updateUserProfile } from '@/lib/db/event-queries';
 import { updateProfileSchema, updateProfileImageSchema } from '@/lib/validations/profile';
 import { z } from 'zod';

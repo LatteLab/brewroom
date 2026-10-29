@@ -1,24 +1,8 @@
 import { db } from './index';
-import { adminWhitelist, users } from './schema';
+import { users } from './schema';
 import { eq, gte, desc, sql } from 'drizzle-orm';
-import type { AdminWhitelist, User, NewUser } from './schema';
+import type { User, NewUser } from './schema';
 
-// ============================================================================
-// Admin Whitelist Queries
-// ============================================================================
-
-/**
- * Check if an email is in the admin whitelist
- */
-export async function isAdmin(email: string): Promise<boolean> {
-  const result = await db
-    .select({ id: adminWhitelist.id })
-    .from(adminWhitelist)
-    .where(eq(adminWhitelist.email, email))
-    .limit(1);
-
-  return result.length > 0;
-}
 
 /**
  * Check if a user has completed their profile (major, classYear, and interests all set).
@@ -32,37 +16,6 @@ export async function isProfileComplete(userId: string): Promise<boolean> {
 
   if (!user) return true;
   return !!(user.major && user.classYear && user.interests);
-}
-
-/**
- * Get all admin whitelist entries
- */
-export async function getAdminWhitelist(): Promise<AdminWhitelist[]> {
-  return await db
-    .select()
-    .from(adminWhitelist)
-    .orderBy(adminWhitelist.createdAt);
-}
-
-/**
- * Add an email to the admin whitelist
- */
-export async function addAdminEmail(email: string): Promise<AdminWhitelist> {
-  const [result] = await db
-    .insert(adminWhitelist)
-    .values({ email })
-    .returning();
-
-  return result;
-}
-
-/**
- * Remove an email from the admin whitelist by ID
- */
-export async function removeAdminEmail(id: string): Promise<void> {
-  await db
-    .delete(adminWhitelist)
-    .where(eq(adminWhitelist.id, id));
 }
 
 // ============================================================================
@@ -181,44 +134,4 @@ export async function applyProfileSeed(userId: string, email: string): Promise<v
     await db.update(users).set({ ...updates, updatedAt: new Date() }).where(eq(users.id, userId));
   }
   await db.execute(sql`DELETE FROM profile_seed WHERE email = ${email.toLowerCase()}`);
-}
-
-/**
- * Get dashboard statistics
- */
-export async function getDashboardStats() {
-  const allUsers = await getAllUsers();
-  const allAdmins = await getAdminWhitelist();
-
-  // Calculate date ranges
-  const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - 7);
-
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-
-  // Count users by time period
-  const usersThisWeek = allUsers.filter(
-    user => user.createdAt && new Date(user.createdAt) >= startOfWeek
-  ).length;
-
-  const usersThisMonth = allUsers.filter(
-    user => user.createdAt && new Date(user.createdAt) >= startOfMonth
-  ).length;
-
-  const usersLastMonth = allUsers.filter(
-    user => user.createdAt &&
-    new Date(user.createdAt) >= startOfLastMonth &&
-    new Date(user.createdAt) <= endOfLastMonth
-  ).length;
-
-  return {
-    totalUsers: allUsers.length,
-    totalAdmins: allAdmins.length,
-    usersThisWeek,
-    usersThisMonth,
-    usersLastMonth,
-  };
 }

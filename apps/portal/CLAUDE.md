@@ -65,7 +65,8 @@ components/
 lib/
 ├── db/
 │   ├── schema.ts           # Drizzle schema (users, events, registrations, lottery, email)
-│   ├── queries.ts          # User/admin queries
+│   ├── admin-queries.ts    # Admin whitelist and dashboard statistics
+│   ├── user-queries.ts     # User lookups, profile onboarding, and user activity
 │   ├── event-queries.ts    # Event, registration, lottery queries
 │   └── email-queries.ts    # Email blast, recipient, audience queries
 ├── emails/                 # Email HTML templates (blast-template.ts)

@@ -1,7 +1,8 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { getDashboardStats, getRecentUsers } from '@/lib/db/queries';
+import { getDashboardStats } from '@/lib/db/admin-queries';
+import { getRecentUsers } from '@/lib/db/user-queries';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/admin/stat-card';
 import { getEventStats } from '@/lib/db/event-queries';

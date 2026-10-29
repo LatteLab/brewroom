@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { getUserById } from '@/lib/db/queries';
+import { getUserById } from '@/lib/db/user-queries';
 import { getUserAttendanceHistory } from '@/lib/db/event-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
