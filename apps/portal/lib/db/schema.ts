@@ -1,6 +1,7 @@
-import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, real, unique, boolean, check, json } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, real, unique, boolean, check, json, jsonb, index, uniqueIndex, foreignKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { AdapterAccountType } from 'next-auth/adapters';
+import type { Configuration, MenuOptions } from '../validations/pos';
 
 // ============================================================================
 // Enums
@@ -247,3 +248,61 @@ export type EmailRecipientStatus = (typeof emailRecipientStatusEnum.enumValues)[
 export type EmailAudienceType = (typeof emailAudienceTypeEnum.enumValues)[number];
 export type EventEditLog = typeof eventEditLog.$inferSelect;
 export type NewEventEditLog = typeof eventEditLog.$inferInsert;
+
+
+export const posEvents = pgTable('pos_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  startsAt: timestamp('starts_at', { withTimezone: true, mode: 'date' }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true, mode: 'date' }).notNull(),
+  createdBy: text('created_by').notNull().references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, table => [check('pos_event_window', sql`${table.endsAt} > ${table.startsAt}`), check('pos_event_name', sql`length(trim(${table.name})) > 0`)]).enableRLS();
+
+export const posMenuItems = pgTable('pos_event_menu_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  eventId: uuid('event_id').notNull().references(() => posEvents.id),
+  name: text('name').notNull(),
+  options: jsonb('options').$type<MenuOptions>().notNull(),
+  available: boolean('available').default(true).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  version: integer('version').default(1).notNull(),
+}, table => [unique('pos_menu_event_id').on(table.eventId, table.id), index('pos_menu_sort').on(table.eventId, table.sortOrder), check('pos_menu_version', sql`${table.version} > 0`)]).enableRLS();
+
+export const posDrinkLogs = pgTable('pos_drink_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  eventId: uuid('event_id').notNull().references(() => posEvents.id),
+  menuItemId: uuid('menu_item_id').notNull(),
+  menuVersion: integer('menu_version').notNull(),
+  drinkName: text('drink_name').notNull(),
+  configuration: jsonb('configuration').$type<Configuration>().notNull(),
+  espressoShots: integer('espresso_shots').default(2).notNull(),
+  quantity: integer('quantity').notNull(),
+  submissionId: uuid('submission_id').notNull(),
+  lineIndex: integer('line_index').notNull(),
+  requestHash: text('request_hash').notNull(),
+  recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  recordedBy: text('recorded_by').notNull().references(() => users.id),
+  kerb: text('kerb'),
+  voidedAt: timestamp('voided_at', { withTimezone: true, mode: 'date' }),
+  voidedBy: text('voided_by').references(() => users.id),
+  voidReason: text('void_reason'),
+  replacesLogId: uuid('replaces_log_id').references((): AnyPgColumn => posDrinkLogs.id),
+  mutationId: uuid('mutation_id'),
+  mutationHash: text('mutation_hash'),
+}, table => [
+  foreignKey({ name: 'pos_log_menu_event', columns: [table.eventId, table.menuItemId], foreignColumns: [posMenuItems.eventId, posMenuItems.id] }),
+  check('pos_log_quantity', sql`${table.quantity} > 0`),
+  check('pos_log_double', sql`${table.espressoShots} = 2`),
+  check('pos_log_line', sql`${table.lineIndex} >= 0`),
+  check('pos_log_void_metadata', sql`(${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL AND ${table.voidReason} IS NULL) OR (${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL AND ${table.voidReason} IS NOT NULL AND length(trim(${table.voidReason})) > 0)`),
+  uniqueIndex('pos_original_submission_line').on(table.eventId, table.submissionId, table.lineIndex).where(sql`${table.replacesLogId} IS NULL`),
+  uniqueIndex('pos_log_replacement').on(table.replacesLogId).where(sql`${table.replacesLogId} IS NOT NULL`),
+  uniqueIndex('pos_log_mutation').on(table.mutationId).where(sql`${table.mutationId} IS NOT NULL`),
+  index('pos_valid_logs_time').on(table.eventId, table.recordedAt).where(sql`${table.voidedAt} IS NULL`),
+]).enableRLS();
+
+export type PosEvent = typeof posEvents.$inferSelect;
+export type PosMenuItem = typeof posMenuItems.$inferSelect;
+export type PosDrinkLog = typeof posDrinkLogs.$inferSelect;

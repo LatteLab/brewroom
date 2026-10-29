@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Latte Lab member portal at apps/portal in the Brewroom workspace. Commands below run from this app directory. Use the root Node/pnpm versions.
+Latte Lab member portal at apps/portal in the Brewroom workspace. Use the root Node/pnpm versions. Commands below run from the repository root; source paths in the architecture sections are relative to apps/portal. Follow README.md for environment setup. Feature designs and implementation plans live together under docs/specs/YYYY-MM-DD-concise-topic/. Read docs/README.md for current proposals and historical records. Historical specs are context, not current execution instructions. A proposal does not describe implemented behavior.
 
 ## Tech Stack
 
@@ -14,13 +14,14 @@ Latte Lab member portal at apps/portal in the Brewroom workspace. Commands below
 ## Commands
 
 ```bash
-pnpm dev          # Start dev server on port 3001
-pnpm build        # Production build
-pnpm lint         # Run ESLint
-pnpm typecheck    # Generate route types and check TypeScript
-pnpm db:push      # Push schema to database
-pnpm db:studio    # Open Drizzle Studio
+pnpm dev:portal
+pnpm --filter @lattelab/portal build
+pnpm --filter @lattelab/portal lint
+pnpm --filter @lattelab/portal typecheck
+pnpm --filter @lattelab/portal test:pos
 ```
+
+Database tools are separate from setup and builds. Confirm the target and coordinate schema changes before using `pnpm --filter @lattelab/portal db:studio` or `pnpm --filter @lattelab/portal db:push`.
 
 ## Project Structure
 
@@ -147,7 +148,7 @@ if (!session?.user) throw new Error("Unauthorized");
 - Supabase Storage RLS: client uses anon key, so policies must include `anon` role (not just `authenticated`). When creating new buckets or tables, always enable RLS and add explicit policies — Supabase disables RLS by default, which means public access to everything.
 - Supabase Storage filenames: when filenames are derived from user data (e.g. userId), include a random token (`{userId}-{uuid}.ext`) to prevent other users from overwriting files via the anon key. For multi-step mutations (upload file + update DB), update the DB first — a broken DB reference is worse than an orphaned storage file.
 - `redirect()` in server actions throws internally (NEXT_REDIRECT). Never wrap server action calls that use `redirect()` in try/catch — it catches the redirect as an error. If you need a toast + navigation after a mutation, skip `redirect()` in the action and use `router.push()` client-side instead.
-- `pnpm db:push` may conflict when multiple worktrees target the same Supabase DB. For schema changes from a non-primary worktree, apply SQL directly via Supabase MCP (`apply_migration` or `execute_sql`).
+- Database changes can conflict when multiple worktrees target the same database. Confirm the target and coordinate changes before using `pnpm --filter @lattelab/portal db:push` or applying SQL. A separate worktree does not provide an isolated database.
 - Mobile-first: most users access on mobile. Always test layouts in narrow viewports. When reusing components in constrained containers (Sheets, modals, popovers), pass a `compact` prop to adapt layout — don't assume the full-page grid will fit.
 - Zsh glob: paths like `app/(admin)/` must be quoted in shell commands (`'app/(admin)/'`) or zsh interprets parens as glob patterns.
 - shadcn `SheetContent` has zero padding on the content body (only `SheetHeader` has `p-4`) and defaults to `w-3/4` on mobile. For full-screen mobile sheets, add `w-full` to the className. Add explicit `px-6` to content areas.
