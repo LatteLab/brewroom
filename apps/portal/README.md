@@ -41,7 +41,7 @@ pnpm --filter @lattelab/portal build
 
 Open http://localhost:3001. Use `pnpm --filter @lattelab/portal start` to serve a production build locally on the same port.
 
-The portal has no automated test suite yet. Before releasing behavior changes, test sign-in, profile onboarding, registration and cancellation, and affected admin flows with development data. A build does not verify database permissions, email delivery, or authentication providers.
+The portal has no automated test suite yet. Before releasing behavior changes, test sign-in, profile onboarding, registration and cancellation, and affected admin flows with development data. A build does not verify database permissions, email delivery, or authentication providers. See the [verification follow-ups](docs/TODO.md#current-verification-follow-ups) for known checks still needed.
 
 ## Database work
 
@@ -55,4 +55,19 @@ pnpm --filter @lattelab/portal db:push
 
 Filtering matters: Drizzle resolves environment and schema paths from the portal directory. The profile import under `scripts/` also writes data and is not ordinary onboarding.
 
-See `CLAUDE.md` for application rules, `docs/` for historical design notes, and the [deployment handoff](../../docs/deployment.md). [Event photos and mailing PR #5](https://github.com/LatteLab/brewroom/pull/5) remains separate; its additional services and migrations need their own rollout.
+See [CLAUDE.md](CLAUDE.md) for application rules, the [documentation index](docs/README.md) for current feature specs and historical design notes, and the [deployment guide](../../docs/deployment.md) for releases. [Event photos and mailing PR #5](https://github.com/LatteLab/brewroom/pull/5) was still open on October 22, 2026; check its current status before integrating its services or migrations.
+
+
+## POS order logging and drink analytics
+
+The new POS feature uses separate `pos_` tables. It does not replace event registration or track inventory. Admins create events and menus at `/admin/pos`. Designated staff use `/kiosk` to choose an event and log received orders. Set the comma-separated server-only `POS_STAFF_EMAILS` variable to grant kiosk access without admin access. Staff can view and correct only their own entries. Admins can view reports, export CSV, and correct any entry.
+
+Event inputs and reports use Eastern time. Logged timestamps come from the server and measure recorded order activity, not preparation or handoff. Corrections preserve the original order timestamp and audit history. Inventory, payments, and offline queues remain outside this feature.
+
+After reviewing the target database and the additive SQL file, apply `lib/db/migrations/20261029193831_pos_drink_analytics.sql` through the team's database change process. The SQL adds only the three POS tables and their constraints/indexes. It enables RLS and revokes direct anonymous/authenticated access; NextAuth-authorized server operations use the existing database connection. Installation and builds do not apply it. Do not run the SQL twice or apply it to an unknown target.
+
+For a disposable local PostgreSQL server, `DATABASE_SSL=disable` is accepted only when `DATABASE_URL` has a loopback host. All non-loopback connections still require SSL.
+
+From the repository root, run pure input/time/report tests with `pnpm --filter @lattelab/portal test:pos`. For real transaction tests, set `POS_TEST_DATABASE_URL` to a disposable loopback database named exactly `lattelab_pos_integration`, then run `pnpm --filter @lattelab/portal test:pos:db`. That suite resets its own four fixture tables and refuses other database names or remote hosts. It never reads production credentials or resets the normal development database.
+
+See the [drink analytics design](docs/specs/2026-10-29-drink-analytics/design.md) and [implementation plan](docs/specs/2026-10-29-drink-analytics/implementation-plan.md) for the feature contract and verification record.

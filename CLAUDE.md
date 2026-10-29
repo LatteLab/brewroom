@@ -7,7 +7,7 @@ Latte Lab's public website and member portal share this repository and deploy se
 
 Use Node from `.nvmrc` and pnpm from `package.json#packageManager`. Install once at the root with `pnpm install --frozen-lockfile`. Commit only the root `pnpm-lock.yaml`. Keep each app's framework versions, configuration, and dependencies independent.
 
-Run `pnpm dev:cafe` on port 3000 or `pnpm dev:portal` on port 3001. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` for verification. The test command currently covers Cafe's gallery tests; the portal has no automated test suite.
+Run `pnpm dev:cafe` on port 3000 or `pnpm dev:portal` on port 3001. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` for verification. The root test command covers Cafe's gallery tests. Run `pnpm --filter @lattelab/portal test:pos` for Portal's POS domain tests; its `test:pos:db` command requires the disposable loopback database described in the Portal README.
 
 Environment files belong inside the app that uses them. Never copy portal credentials into Cafe or the workspace root. Database commands must run through `pnpm --filter @lattelab/portal` so Drizzle resolves the portal's environment and schema. Installation and builds must not run migrations or send email.
 
