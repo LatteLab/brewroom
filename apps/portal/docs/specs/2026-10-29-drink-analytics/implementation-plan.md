@@ -2,6 +2,8 @@
 
 Date: October 29, 2026. The original delivery checklist is retained below. The final section records the subsequent overview, event-deletion, and single-drink logging follow-ups.
 
+This is a chronological delivery record. The [design](design.md) describes current behavior. Original multi-drink entry, starter menus, and non-admin cashier access were superseded by the follow-ups below.
+
 Implement the [design](design.md). Use the [portal documentation index](../../README.md) and [portal setup guide](../../../README.md) for current commands and environment requirements.
 
 ## Hold the scope
@@ -94,7 +96,7 @@ Acceptance: a correction changes drink quantities/specifications once while pres
 
 ## 5. Build event and menu setup
 
-Files: create route pages under `app/(admin)/admin/pos/` and domain components under `components/admin/pos/`.
+Files: route pages under `app/(admin)/admin/pos/` and domain components under `components/pos/`.
 
 - [x] Add `/admin/pos`, `/admin/pos/new`, and `/admin/pos/[eventId]` with the established admin layout and access checks.
 - [x] Add event name and start/end controls labelled Eastern time. Reuse existing date controls after testing their conversion behavior.
@@ -152,12 +154,12 @@ Run `pnpm --filter @lattelab/portal test:pos` for domain tests and `POS_TEST_DAT
 - [x] Record environment/service-related build limitations separately from feature failures. Never copy production secrets to make a test pass.
 - [x] Run `git diff --check` and review the additive migration and access policies before release.
 
-Implementation was authorized after this plan was written. The migration was applied only to disposable local databases. No shared database migration, release, registration retirement, or table rename was performed. Inventory remains a later feature.
+At the original implementation checkpoint, the migration had been applied only to disposable local databases. Production migration and release work followed separately. Registration retirement and table renaming were not performed; inventory remains separate work.
 
 
-## Implementation notes
+## Original implementation notes
 
-- Initial staff eligibility uses `POS_STAFF_EMAILS`, with administrator setup/reporting and ownership-limited staff correction access. No auth bypass was added.
+- Initial delivery allowed non-admin cashiers through an email allowlist and limited their correction access by ownership. The October 30 follow-up removes this model; POS is now admin-only.
 - The implementation rebuilt the unavailable prototype. `/kiosk` is an authenticated chooser; `/kiosk/[eventId]` logs orders against persistent records.
 - The additive migration is `lib/db/migrations/20261029193831_pos_drink_analytics.sql`. Its filename came from the Supabase CLI and its DDL comes from the POS Drizzle declarations. Applying it remains separate from installation/builds.
 - A known stale-menu failure offers explicit menu refresh. Changed/unavailable draft lines are removed for review; unchanged lines and kerb remain. Uncertain submissions stay frozen for exact retries.
@@ -190,3 +192,12 @@ This follow-up changes no schema and requires no migration. Inventory, payments,
 - [x] Apply the two reviewed migrations to the confirmed production project before merging. Verified the nullable `archived_at` column and that removed entries retaining a kerb dropped from one to zero. No valid orders or drink totals changed. Production orders were not used for UI tests.
 
 The user approved menu archiving, hidden removed logs, kerb clearing on removal, and pushing/merging. Inventory, payments, registration cleanup, and production deployment monitoring remain outside this change.
+
+## Admin-only access and documentation follow-up, October 30
+
+- Remove the cashier allowlist and require an admin on all POS pages, queries, actions, and exports. Existing admins retain full access and can correct any entry.
+- Remove the non-admin ownership UI branches and environment-template setting. No database migration is needed for this access restriction.
+- Add a regression test covering every POS query/mutation for signed-in non-admins, and exercise cross-admin correction/removal. The suites now contain eight domain tests and 17 PostgreSQL tests.
+- Verified all 25 tests, Portal typecheck, production build, and lint with five existing warnings. Local browser checks denied the former non-admin cashier on both kiosk routes and allowed the admin overview/logger. No production data writes or database migrations were needed for this follow-up.
+- Refresh agent instructions, setup commands, release guidance, and migration provenance. Remove the obsolete pre-monorepo instruction-organization proposal, while preserving dated feature plans.
+- The user authorized direct commits to `main` for this follow-up without a pull request. This approval is specific to the current work.

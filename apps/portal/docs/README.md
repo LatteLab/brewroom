@@ -6,6 +6,7 @@
 - [Portal setup](../README.md) covers environment variables, local development, and database tools.
 - [Portal instructions](../CLAUDE.md) describe the current application structure and code conventions.
 - [Deployment guide](../../../docs/deployment.md) covers the two existing Vercel projects and normal releases.
+- [Database migrations](database-migrations.md) covers reviewed SQL, isolated tests, shared changes, and applied POS migrations.
 - [Verification follow-ups](TODO.md#current-verification-follow-ups) records checks still needed after the monorepo review.
 
 ## Feature specs
@@ -26,7 +27,9 @@ This layout is the repository convention. It works with poteto mode, which separ
 
 | Feature | Design | Implementation plan |
 | --- | --- | --- |
-| Drink analytics, implemented locally | [Design](specs/2026-10-29-drink-analytics/design.md) | [Implementation plan](specs/2026-10-29-drink-analytics/implementation-plan.md) |
+| Admin-only POS and drink analytics | [Current design](specs/2026-10-29-drink-analytics/design.md) | [Delivery and verification history](specs/2026-10-29-drink-analytics/implementation-plan.md) |
+
+POS logging, overview analytics, menu archiving, and removed-log kerb cleanup are merged into `main`. The three database migrations were applied on October 29, 2026. The admin-only access follow-up removes the earlier non-admin cashier allowlist. A merged commit or applied migration does not establish that the newest production UI was verified.
 
 ## Historical specs
 
@@ -56,4 +59,4 @@ In historical records, `app/`, `components/`, `lib/`, and references to the proj
 
 Use the current guides for commands. Do not rerun old schema migrations, email sends, or release instructions as setup steps. Keep `.env.local` and credentials untracked; use placeholder values in `.env.example`.
 
-The [configuration organization proposal](archive/claude-md-organization.md) and [historical backlog](TODO.md#historical-backlog) also predate the workspace. Neither overrides the current root and app instructions.
+The [historical backlog](TODO.md#historical-backlog) also predates the workspace and does not override the current root and app instructions.

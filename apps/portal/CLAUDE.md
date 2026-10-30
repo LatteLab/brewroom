@@ -19,9 +19,11 @@ pnpm --filter @lattelab/portal build
 pnpm --filter @lattelab/portal lint
 pnpm --filter @lattelab/portal typecheck
 pnpm --filter @lattelab/portal test:pos
+# Requires disposable loopback lattelab_pos_integration; resets fixture tables.
+pnpm --filter @lattelab/portal test:pos:db
 ```
 
-Database tools are separate from setup and builds. Confirm the target and coordinate schema changes before using `pnpm --filter @lattelab/portal db:studio` or `pnpm --filter @lattelab/portal db:push`.
+Database tools are separate from setup and builds. Confirm the target and coordinate schema changes before using them. Follow [database migrations](docs/database-migrations.md); `db:push` is not the shared or production release process.
 
 ## Project Structure
 
@@ -29,6 +31,7 @@ Database tools are separate from setup and builds. Confirm the target and coordi
 app/
 ├── (admin)/admin/              # Admin section (protected)
 │   ├── page.tsx                # Dashboard with user + event stats
+│   ├── pos/                    # POS overview, event/menu setup, analytics, CSV export
 │   ├── email/page.tsx          # Email blast hub
 │   ├── email/compose/page.tsx  # Compose / edit draft
 │   ├── email/[id]/page.tsx     # Blast detail & delivery tracking
@@ -47,7 +50,8 @@ app/
 │   ├── directory/[id]/page.tsx # Member profile view
 │   ├── discover/page.tsx       # Discover events/content
 │   └── settings/page.tsx       # Edit own profile & settings
-├── actions/                    # Server actions (events.ts, email.ts, profile.ts)
+├── kiosk/                      # Admin-only full-screen order logger and event chooser
+├── actions/                    # Server actions (pos.ts, events.ts, email.ts, profile.ts)
 └── api/                        # NextAuth routes + Resend webhook
 
 components/
@@ -60,6 +64,7 @@ components/
 │   ├── admin-sidebar.tsx   # Shared sidebar (used in layout)
 │   └── stat-card.tsx       # Shared dashboard stat card
 ├── user/                   # Member portal components (sidebar, event-card, profile-form)
+├── pos/                    # POS logger, menu editor, reports, corrections; CSS Modules
 └── auth/                   # Auth components
 
 lib/
@@ -67,6 +72,7 @@ lib/
 │   ├── schema.ts           # Drizzle schema (users, events, registrations, lottery, email)
 │   ├── admin-queries.ts    # Admin whitelist and dashboard statistics
 │   ├── user-queries.ts     # User lookups, profile onboarding, and user activity
+│   ├── pos-queries.ts      # Admin-only POS transactions and report queries
 │   ├── event-queries.ts    # Event, registration, lottery queries
 │   └── email-queries.ts    # Email blast, recipient, audience queries
 ├── emails/                 # Email HTML templates (blast-template.ts)
@@ -76,6 +82,8 @@ lib/
 │   └── storage.ts          # Upload/delete helpers for event covers + profile images
 ├── gradients.ts            # Gradient generation/parsing for event covers
 ├── validations/            # Zod schemas (events.ts, email.ts, profile.ts)
+├── pos.ts                  # POS validation helpers, Eastern time, analytics, CSV
+├── pos-access.ts           # Session-based admin check for POS pages and actions
 ├── utils.ts                # Utilities (cn helper)
 └── utils/
     └── lottery.ts           # Seat-aware weighted lottery (buildLotteryPool, weightedSelectWithSeats)
@@ -95,6 +103,17 @@ lib/
 - `event_plus_one_invites` — Pair invites (pending/accepted); both FK columns cascade on registration delete
 - `events.questions` (JSON) — Per-event registration questionnaire definitions
 - `event_registrations.questionnaire_answers` (JSON) — User responses keyed by question ID
+- `pos_events` — POS event name and Eastern service window, separate from registration events
+- `pos_event_menu_items` — Event-specific drinks, options/defaults, ordering, availability, and archive timestamp
+- `pos_drink_logs` — Recorded-order snapshots, quantities, retry IDs, corrections, voids, and optional kerbs
+
+## POS contract
+
+All POS pages, queries, actions, and exports require an admin. There is no separate cashier role or email allowlist. Admins can inspect and correct any entry. The `/` landing route sends admins to `/admin` and members to `/user`; explicit login return destinations and Member View remain supported.
+
+New events start with empty menus. The kiosk logs one configured drink per submission without a cart. Menu removal archives the definition and preserves past orders. Log removal voids the entry, excludes it from analytics, clears its kerb, and hides it by default. Show removed entries reveals the history. Corrections clear the superseded row's kerb and retain the optional kerb on the valid replacement.
+
+Use `America/New_York` for date entry/display and server-assigned `recorded_at` for order timing. Do not infer serving time, waiting time, or identity from these records. Preserve retry IDs, original order timestamps, event-before-log locking, and historical multi-drink quantities. Inventory and registration retirement are separate changes. See the [current design](docs/specs/2026-10-29-drink-analytics/design.md) for the full contract.
 
 ## Key Patterns
 
@@ -146,7 +165,7 @@ if (!session?.user) throw new Error("Unauthorized");
 
 ## Gotchas
 
-- Supabase Storage RLS: client uses anon key, so policies must include `anon` role (not just `authenticated`). When creating new buckets or tables, always enable RLS and add explicit policies — Supabase disables RLS by default, which means public access to everything.
+- Storage and database access have different boundaries. The existing storage client uses the browser anon key; bucket policies must match that client's actual authentication. POS tables enable RLS and revoke direct `anon` and `authenticated` access. NextAuth-authorized server queries use the database connection. Do not grant public table access to make a server-only feature work.
 - Supabase Storage filenames: when filenames are derived from user data (e.g. userId), include a random token (`{userId}-{uuid}.ext`) to prevent other users from overwriting files via the anon key. For multi-step mutations (upload file + update DB), update the DB first — a broken DB reference is worse than an orphaned storage file.
 - `redirect()` in server actions throws internally (NEXT_REDIRECT). Never wrap server action calls that use `redirect()` in try/catch — it catches the redirect as an error. If you need a toast + navigation after a mutation, skip `redirect()` in the action and use `router.push()` client-side instead.
 - Database changes can conflict when multiple worktrees target the same database. Confirm the target and coordinate changes before using `pnpm --filter @lattelab/portal db:push` or applying SQL. A separate worktree does not provide an isolated database.

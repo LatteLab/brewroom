@@ -1,6 +1,6 @@
 # Member portal
 
-Latte Lab's member and admin app at [app.lattelab.org](https://app.lattelab.org). It handles profiles, events, registration, lotteries, check-in, and email blasts. The public site lives in [../cafe](../cafe/README.md).
+Latte Lab's member and admin app at [app.lattelab.org](https://app.lattelab.org). It handles admin-only POS order logging and drink analytics, profiles, event registration, lotteries, check-in, and email blasts. The public site lives in [../cafe](../cafe/README.md).
 
 ## Environment
 
@@ -45,22 +45,22 @@ The POS test commands below cover domain behavior and real database transactions
 
 ## Database work
 
-Normal development uses the established development schema. Installation and builds do not change the database. After confirming the target and coordinating with the team lead:
+Normal development uses the established development schema. Installation and builds do not change the database. Follow the [database migration guide](docs/database-migrations.md) for reviewed SQL, target checks, and shared releases. After confirming a disposable local target, these tools are available:
 
 ```sh
 pnpm --filter @lattelab/portal db:studio
-# Applies schema changes to DATABASE_URL; do not run as a setup step.
+# Changes the connected schema directly; disposable local experiments only.
 pnpm --filter @lattelab/portal db:push
 ```
 
-Filtering matters: Drizzle resolves environment and schema paths from the portal directory. The profile import under `scripts/` also writes data and is not ordinary onboarding.
+Studio can edit data. Filtering matters: Drizzle resolves environment and schema paths from the portal directory. Do not use these commands to replay shared/production migrations. The profile import under `scripts/` also writes data and is not ordinary onboarding.
 
 See [CLAUDE.md](CLAUDE.md) for application rules, the [documentation index](docs/README.md) for current feature specs and historical design notes, and the [deployment guide](../../docs/deployment.md) for releases. [Event photos and mailing PR #5](https://github.com/LatteLab/brewroom/pull/5) was still open on October 22, 2026; check its current status before integrating its services or migrations.
 
 
 ## POS order logging and drink analytics
 
-The new POS feature uses separate `pos_` tables. It does not replace event registration or track inventory. Admins create events and menus at `/admin/pos`. Designated staff use `/kiosk` to choose an event and log received orders. Set the comma-separated server-only `POS_STAFF_EMAILS` variable to grant kiosk access without admin access. Staff can view and correct only their own entries. Admins can view reports, export CSV, and correct any entry.
+POS uses separate `pos_` tables and is available only to admins. Admins create events and menus at `/admin/pos`, log received orders at `/kiosk`, review analytics, export CSV, and correct any entry. Membership alone does not grant POS access. There is no cashier email allowlist. POS does not replace event registration or track inventory.
 
 New events start with an empty menu; add each event's drinks manually. Existing menus are preserved. The main POS page combines drink totals and configuration breakdowns across all events and shows counts beside each event. Exact matching recorded drink names are combined; orders are counted separately for each event. Voided entries do not count, and corrections replace their originals.
 
@@ -68,13 +68,11 @@ The kiosk logs one selected drink directly, with no cart, quantity selector, or 
 
 Expand a drink in the event menu and use **Remove drink** to archive it. It disappears from menu editing and the kiosk, while past orders and their analytics stay intact. Archived drinks cannot be ordered or restored by stale editors; add a new drink when needed. **Available to order** remains a separate control for temporarily taking a drink out of service.
 
-Admins can permanently delete a POS event after typing its current name. Deletion removes that event's menu and all order history, including voids and corrections, and removes its totals from the overview. Kiosk links for deleted events return not found. This feature needs no additional database migration.
+Admins can permanently delete a POS event after typing its current name. Deletion removes that event's menu and all order history, including voids and corrections, and removes its totals from the overview. Kiosk links for deleted events return not found.
 
 Event inputs and reports use Eastern time. Logged timestamps come from the server and measure recorded order activity, not preparation or handoff. Corrections preserve the original order timestamp and audit history. Inventory, payments, and offline queues remain outside this feature.
 
-After reviewing the target database and the additive SQL file, apply `lib/db/migrations/20261029193831_pos_drink_analytics.sql` through the team's database change process. The SQL adds only the three POS tables and their constraints/indexes. It enables RLS and revokes direct anonymous/authenticated access; NextAuth-authorized server operations use the existing database connection. Installation and builds do not apply it. Do not run the SQL twice or apply it to an unknown target.
-
-Menu archiving also requires `lib/db/migrations/20261029224324_pos_menu_removal.sql`, which adds a nullable `archived_at` column without removing existing menu items. Apply `lib/db/migrations/20261029225111_pos_removed_log_kerbs.sql` to clear kerbs on existing voided records; it does not change valid orders or report totals. Apply these reviewed migrations in timestamp order before releasing the corresponding code.
+The three POS SQL migrations and their production application record are listed in the [database migration guide](docs/database-migrations.md#existing-pos-migrations). They enable RLS, deny direct browser-role access, add menu archival, and clear kerbs on existing removed logs. Check migration history before applying anything to an existing database. Fresh disposable POS test databases apply the files through the integration suite.
 
 For a disposable local PostgreSQL server, `DATABASE_SSL=disable` is accepted only when `DATABASE_URL` has a loopback host. All non-loopback connections still require SSL.
 

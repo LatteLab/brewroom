@@ -11,4 +11,4 @@ Run `pnpm dev:cafe` on port 3000 or `pnpm dev:portal` on port 3001. Run `pnpm li
 
 Environment files belong inside the app that uses them. Never copy portal credentials into Cafe or the workspace root. Database commands must run through `pnpm --filter @lattelab/portal` so Drizzle resolves the portal's environment and schema. Installation and builds must not run migrations or send email.
 
-Keep contribution instructions in `README.md`, deployment instructions in `docs/deployment.md`, and migration provenance in `docs/monorepo-migration.md`. App-specific historical plans remain inside each app. Add shared packages only when existing code needs them. Turbo is deferred until the pnpm workspace and deployment cutover are verified.
+Keep contribution instructions in `README.md`, deployment instructions in `docs/deployment.md`, and monorepo import provenance in `docs/monorepo-migration.md`. Portal database changes follow `apps/portal/docs/database-migrations.md`. Current feature behavior belongs in its design; dated implementation plans retain delivery history. Add shared packages only when existing code needs them. Turbo is not configured.
