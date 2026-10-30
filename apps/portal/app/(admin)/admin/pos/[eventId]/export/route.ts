@@ -4,7 +4,7 @@ import { logsCsv } from '@/lib/pos';
 import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 export async function GET(_request: Request, { params }: { params: Promise<{ eventId: string }> }) {
-  let actor; try { actor = await requirePosActor(true); } catch { return new Response('Administrator access is required.', { status: 403 }); }
+  let actor; try { actor = await requirePosActor(); } catch { return new Response('Administrator access is required.', { status: 403 }); }
   const { eventId } = await params; if (!z.uuid().safeParse(eventId).success) return new Response('Not found.', { status: 404 });
   const event = await getPosEvent(actor, eventId); if (!event) return new Response('Not found.', { status: 404 });
   const logs = await getPosReport(actor, eventId);

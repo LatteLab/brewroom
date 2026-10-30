@@ -3,15 +3,9 @@ import { and, asc, desc, eq, getTableColumns, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './index';
 import { posEvents, posMenuItems, posDrinkLogs, type PosDrinkLog } from './schema';
-import { PosError, assertLogOwner, buildDrinkBreakdowns, easternInstant, posStaffAllowed, type PosActor } from '../pos';
+import { PosError, assertPosAdmin, buildDrinkBreakdowns, easternInstant, type PosActor } from '../pos';
 import { configurationAllowed, configurationSchema, correctionInputSchema, deleteEventSchema, eventInputSchema, logInputSchema, menuInputSchema, removeMenuItemSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
 
-function staff(actor: PosActor) {
-  if (!posStaffAllowed(actor, process.env.POS_STAFF_EMAILS ?? '')) throw new PosError('POS access is required.');
-}
-function admin(actor: PosActor) {
-  if (!actor.isAdmin) throw new PosError('Administrator access is required.');
-}
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const uuid = (value: unknown) => z.uuid().parse(value);
 const eventDates = (input: z.infer<typeof eventInputSchema>) => {
@@ -20,33 +14,32 @@ const eventDates = (input: z.infer<typeof eventInputSchema>) => {
   return { name: input.name, startsAt, endsAt };
 };
 export async function listPosEvents(actor: PosActor) {
-  staff(actor);
+  assertPosAdmin(actor);
   return db.select().from(posEvents).orderBy(desc(posEvents.startsAt));
 }
 export async function getPosEvent(actor: PosActor, eventId: string) {
-  staff(actor);
+  assertPosAdmin(actor);
   const [event] = await db.select().from(posEvents).where(eq(posEvents.id, uuid(eventId)));
   return event ?? null;
 }
 export async function getPosMenu(actor: PosActor, eventId: string) {
-  staff(actor);
+  assertPosAdmin(actor);
   return db.select().from(posMenuItems).where(and(eq(posMenuItems.eventId, uuid(eventId)), isNull(posMenuItems.archivedAt))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
 }
 export async function getPosLogs(actor: PosActor, eventId: string, includeHistory = false) {
-  staff(actor);
+  assertPosAdmin(actor);
   const conditions = [eq(posDrinkLogs.eventId, uuid(eventId))];
-  if (!actor.isAdmin) conditions.push(eq(posDrinkLogs.recordedBy, actor.id));
   if (!includeHistory) conditions.push(isNull(posDrinkLogs.voidedAt));
   return db.select().from(posDrinkLogs).where(and(...conditions)).orderBy(desc(posDrinkLogs.recordedAt), asc(posDrinkLogs.lineIndex));
 }
 export async function createPosEvent(actor: PosActor, input: unknown) {
-  admin(actor);
+  assertPosAdmin(actor);
   const values = eventDates(eventInputSchema.parse(input));
   const [event] = await db.insert(posEvents).values({ ...values, createdBy: actor.id }).returning();
   return event;
 }
 export async function deletePosEvent(actor: PosActor, input: unknown) {
-  admin(actor); const value = deleteEventSchema.parse(input);
+  assertPosAdmin(actor); const value = deleteEventSchema.parse(input);
   await db.transaction(async tx => {
     const [event] = await tx.select().from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) return;
@@ -58,7 +51,7 @@ export async function deletePosEvent(actor: PosActor, input: unknown) {
   return value.eventId;
 }
 export async function getPosOverview(actor: PosActor) {
-  admin(actor);
+  assertPosAdmin(actor);
   return db.transaction(async tx => {
     const [events, drinks, configurations] = await Promise.all([
       tx.select({
@@ -75,7 +68,7 @@ export async function getPosOverview(actor: PosActor) {
   }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
 export async function updatePosEvent(actor: PosActor, eventId: string, input: unknown) {
-  admin(actor); const values = eventDates(eventInputSchema.parse(input));
+  assertPosAdmin(actor); const values = eventDates(eventInputSchema.parse(input));
   return db.transaction(async tx => {
     const [event] = await tx.update(posEvents).set({ ...values, updatedAt: new Date() }).where(eq(posEvents.id, uuid(eventId))).returning();
     if (!event) throw new PosError('Event not found.');
@@ -83,7 +76,7 @@ export async function updatePosEvent(actor: PosActor, eventId: string, input: un
   });
 }
 export async function savePosMenuItem(actor: PosActor, input: unknown) {
-  admin(actor); const value = menuInputSchema.parse(input);
+  assertPosAdmin(actor); const value = menuInputSchema.parse(input);
   return db.transaction(async tx => {
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
@@ -100,7 +93,7 @@ export async function savePosMenuItem(actor: PosActor, input: unknown) {
   });
 }
 export async function removePosMenuItem(actor: PosActor, input: unknown) {
-  admin(actor); const value = removeMenuItemSchema.parse(input);
+  assertPosAdmin(actor); const value = removeMenuItemSchema.parse(input);
   await db.transaction(async tx => {
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
@@ -113,7 +106,7 @@ export async function removePosMenuItem(actor: PosActor, input: unknown) {
   return value.eventId;
 }
 export async function reorderPosMenu(actor: PosActor, input: unknown) {
-  admin(actor); const value = reorderMenuSchema.parse(input);
+  assertPosAdmin(actor); const value = reorderMenuSchema.parse(input);
   await db.transaction(async tx => {
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
@@ -129,7 +122,7 @@ function originalRequest(input: LogInput) {
   return { eventId: input.eventId, submissionId: input.submissionId, lines: input.lines, kerb: input.kerb || null };
 }
 export async function logPosDrinks(actor: PosActor, input: unknown) {
-  staff(actor); const value = logInputSchema.parse(input); const requestHash = hash(originalRequest(value));
+  assertPosAdmin(actor); const value = logInputSchema.parse(input); const requestHash = hash(originalRequest(value));
   return db.transaction(async tx => {
     const [event] = await tx.select().from(posEvents).where(eq(posEvents.id, value.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
@@ -152,14 +145,14 @@ export async function logPosDrinks(actor: PosActor, input: unknown) {
   });
 }
 export async function voidPosDrinkLog(actor: PosActor, input: unknown) {
-  staff(actor); const value = voidInputSchema.parse(input);
+  assertPosAdmin(actor); const value = voidInputSchema.parse(input);
   return db.transaction(async tx => {
     const [entry] = await tx.select({ eventId: posDrinkLogs.eventId }).from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId));
     if (!entry) throw new PosError('Entry not found.');
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, entry.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
     const [log] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId)).for('update');
-    if (!log) throw new PosError('Entry not found.'); assertLogOwner(actor, log.recordedBy);
+    if (!log) throw new PosError('Entry not found.');
     if (log.voidedAt) {
       if (log.kerb === null) return log;
       const [cleared] = await tx.update(posDrinkLogs).set({ kerb: null }).where(eq(posDrinkLogs.id, log.id)).returning();
@@ -170,20 +163,20 @@ export async function voidPosDrinkLog(actor: PosActor, input: unknown) {
   });
 }
 export async function correctPosDrinkLog(actor: PosActor, input: unknown) {
-  staff(actor); const value = correctionInputSchema.parse(input); const mutationHash = hash({ logId: value.logId, configuration: value.configuration, quantity: value.quantity, kerb: value.kerb || null, reason: value.reason, actorId: actor.id });
+  assertPosAdmin(actor); const value = correctionInputSchema.parse(input); const mutationHash = hash({ logId: value.logId, configuration: value.configuration, quantity: value.quantity, kerb: value.kerb || null, reason: value.reason, actorId: actor.id });
   return db.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${value.mutationId}, 0))`);
     const [existing] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.mutationId, value.mutationId));
     if (existing) {
       if (existing.mutationHash !== mutationHash || existing.replacesLogId !== value.logId) throw new PosError('This correction ID was already used for a different change.');
-      assertLogOwner(actor, existing.recordedBy); return existing;
+      return existing;
     }
     const [entry] = await tx.select({ eventId: posDrinkLogs.eventId }).from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId));
     if (!entry) throw new PosError('Entry not found.');
     const [event] = await tx.select({ id: posEvents.id }).from(posEvents).where(eq(posEvents.id, entry.eventId)).for('update');
     if (!event) throw new PosError('Event not found.');
     const [original] = await tx.select().from(posDrinkLogs).where(eq(posDrinkLogs.id, value.logId)).for('update');
-    if (!original) throw new PosError('Entry not found.'); assertLogOwner(actor, original.recordedBy);
+    if (!original) throw new PosError('Entry not found.');
     if (original.voidedAt) throw new PosError('This entry already changed. Refresh the recent entries.');
     const [menuItem] = await tx.select().from(posMenuItems).where(eq(posMenuItems.id, original.menuItemId));
     if (hash(value.configuration) !== hash(configurationSchema.parse(original.configuration)) && (!menuItem || !configurationAllowed(menuItem.options, value.configuration))) throw new PosError('The corrected choices are not supported by this drink.');
@@ -198,6 +191,6 @@ export async function correctPosDrinkLog(actor: PosActor, input: unknown) {
   });
 }
 export async function getPosReport(actor: PosActor, eventId: string): Promise<PosDrinkLog[]> {
-  admin(actor);
+  assertPosAdmin(actor);
   return getPosLogs(actor, eventId);
 }

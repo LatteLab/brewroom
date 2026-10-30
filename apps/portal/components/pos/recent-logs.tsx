@@ -25,13 +25,13 @@ function LogEditor({ log }: { log: PosDrinkLog }) {
     <button className={styles.primary} type="submit" disabled={pending}>{held ? 'Retry same correction' : 'Save correction'}</button>
   </form></details>{error && <p role="alert" className={styles.error}>{error}</p>}</div>;
 }
-export function RecentLogs({ logs, isAdmin, actorId }: { logs: PosDrinkLog[]; isAdmin: boolean; actorId: string }) {
+export function RecentLogs({ logs }: { logs: PosDrinkLog[] }) {
   const [visible, setVisible] = useState(20);
   const [showRemoved, setShowRemoved] = useState(false);
   const entries = showRemoved ? logs : logs.filter(log => !log.voidedAt);
   return <section className={styles.section} aria-labelledby="recent-order-heading">
     <div className={styles.sectionTop}>
-      <div><h2 id="recent-order-heading">{isAdmin ? 'Order log and history' : 'Your recent entries'}</h2><p className={styles.muted}>Recorded order times are shown in Eastern. Removed entries do not count toward analytics, and their kerbs are cleared.</p></div>
+      <div><h2 id="recent-order-heading">Order log and history</h2><p className={styles.muted}>Recorded order times are shown in Eastern. Removed entries do not count toward analytics, and their kerbs are cleared.</p></div>
       <label className={styles.historyToggle}><input type="checkbox" checked={showRemoved} onChange={e => { setShowRemoved(e.target.checked); setVisible(20); }} />Show removed entries</label>
     </div>
     {entries.length === 0 ? <p className={styles.empty}>{logs.length ? 'No active entries. Turn on “Show removed entries” to see the history.' : 'No entries yet.'}</p> : <div className={styles.logList}>{entries.slice(0, visible).map(log =>
@@ -39,7 +39,7 @@ export function RecentLogs({ logs, isAdmin, actorId }: { logs: PosDrinkLog[]; is
         <div className={styles.logHeading}><strong>{log.quantity} × {log.drinkName}</strong><time dateTime={new Date(log.recordedAt).toISOString()}>{formatPosDate(log.recordedAt)}</time></div>
         <p>{configurationLabel(log.configuration)}</p>
         <p className={styles.muted}>{log.voidedAt ? 'Kerb cleared' : log.kerb ? `MIT kerb: ${log.kerb}` : 'Guest · no kerb'} · Order {log.submissionId.slice(0, 8)}{log.replacesLogId ? ' · corrected entry' : ''}</p>
-        {log.voidedAt ? <p className={styles.muted}>Removed {formatPosDate(log.voidedAt)} · {log.voidReason}</p> : (isAdmin || actorId === log.recordedBy) && <LogEditor log={log} />}
+        {log.voidedAt ? <p className={styles.muted}>Removed {formatPosDate(log.voidedAt)} · {log.voidReason}</p> : <LogEditor log={log} />}
       </article>
     )}</div>}
     {entries.length > visible && <button type="button" className={styles.secondary} onClick={() => setVisible(count => count + 20)}>Show more entries</button>}

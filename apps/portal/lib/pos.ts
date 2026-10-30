@@ -4,11 +4,8 @@ export class PosError extends Error {}
 
 export const POS_TIMEZONE = 'America/New_York';
 export type PosActor = { id: string; email: string; isAdmin: boolean };
-export function posStaffAllowed(actor: PosActor, allowlist: string) {
-  return actor.isAdmin || allowlist.split(',').map(email => email.trim().toLowerCase()).filter(Boolean).includes(actor.email.trim().toLowerCase());
-}
-export function assertLogOwner(actor: PosActor, recordedBy: string) {
-  if (!actor.isAdmin && actor.id !== recordedBy) throw new PosError('You can change only your own entries.');
+export function assertPosAdmin(actor: PosActor) {
+  if (!actor.isAdmin) throw new PosError('Administrator access is required.');
 }
 export function easternInput(date: Date | string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: POS_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(date));

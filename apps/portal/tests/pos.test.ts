@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { configurationSchema, defaultMenuOptions, menuOptionsSchema, logInputSchema, quantitySchema, singleDrinkInputSchema } from '../lib/validations/pos';
-import { easternInstant, easternInput, posStaffAllowed, assertLogOwner, buildAnalytics, logsCsv, type AnalyticsLog } from '../lib/pos';
+import { easternInstant, easternInput, assertPosAdmin, buildAnalytics, logsCsv, type AnalyticsLog } from '../lib/pos';
 
 test('Eastern date entry respects summer/winter and rejects DST gaps/repeats', () => {
   assert.equal(easternInstant('2026-07-15T15:00').toISOString(), '2026-07-15T19:00:00.000Z');
@@ -19,13 +19,10 @@ test('hot drinks cannot carry ice and menu defaults must be available', () => {
   assert.equal(menuOptionsSchema.safeParse({ ...defaultMenuOptions, milks: ['Whole', 'Whole'] }).success, false);
   assert.equal(logInputSchema.safeParse({ eventId: randomUUID(), submissionId: randomUUID(), lines: [], recordedAt: new Date() }).success, false);
 });
-test('POS membership is explicit and staff can modify only their own entries', () => {
-  const staff = { id: 'staff', email: ' Staff@mit.edu ', isAdmin: false };
-  assert.equal(posStaffAllowed(staff, 'another@mit.edu,staff@mit.edu'), true);
-  assert.equal(posStaffAllowed(staff, ''), false);
-  assert.equal(posStaffAllowed({ ...staff, isAdmin: true }, ''), true);
-  assert.throws(() => assertLogOwner(staff, 'another'), /only your own/);
-  assert.doesNotThrow(() => assertLogOwner(staff, 'staff'));
+test('POS access requires an administrator', () => {
+  const member = { id: 'member', email: 'member@mit.edu', isAdmin: false };
+  assert.throws(() => assertPosAdmin(member), /Administrator/);
+  assert.doesNotThrow(() => assertPosAdmin({ ...member, isAdmin: true }));
 });
 test('historical quantities and corrections remain bounded positive integers', () => {
   assert.equal(quantitySchema.parse(995 + 5), 1000);

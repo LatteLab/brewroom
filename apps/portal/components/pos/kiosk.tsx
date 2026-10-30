@@ -12,7 +12,7 @@ import { ConfigurationControls } from './configuration-controls';
 import { RecentLogs } from './recent-logs';
 import styles from './pos.module.css';
 
-export function Kiosk({ event, menu, logs, actorId, isAdmin, initialSubmissionId }: { initialSubmissionId: string; event: PosEvent; menu: PosMenuItem[]; logs: PosDrinkLog[]; actorId: string; isAdmin: boolean }) {
+export function Kiosk({ event, menu, logs, initialSubmissionId }: { initialSubmissionId: string; event: PosEvent; menu: PosMenuItem[]; logs: PosDrinkLog[] }) {
   const router = useRouter();
   const [currentMenu, setCurrentMenu] = useState(menu);
   const available = currentMenu.filter(item => item.available);
@@ -70,7 +70,7 @@ export function Kiosk({ event, menu, logs, actorId, isAdmin, initialSubmissionId
   return <main className={styles.kiosk}><div className={styles.shell}>
     <header className={styles.header}>
       <Link href="/kiosk" className={styles.brand}><span className={styles.brandMark}><Coffee size={24} /></span><span>latte lab<small>MIT’S COFFEE COMMUNITY.</small></span></Link>
-      <div className={styles.headerEvent}><strong>{event.name}</strong><span>{formatPosDate(event.startsAt)} – {formatPosDate(event.endsAt, true)}</span>{isAdmin && <Link href={`/admin/pos/${event.id}`}>Event dashboard</Link>}</div>
+      <div className={styles.headerEvent}><strong>{event.name}</strong><span>{formatPosDate(event.startsAt)} – {formatPosDate(event.endsAt, true)}</span><Link href={`/admin/pos/${event.id}`}>Event dashboard</Link></div>
     </header>
     <div className={styles.pageHeading}><div><h1>Good drinks. <span>Great company.</span></h1><p>One drink per person. Choose their options, then log it directly.</p></div><Link className={styles.textLink} href="/kiosk">Change event</Link></div>
     <div className={styles.workspace}>
@@ -108,7 +108,7 @@ export function Kiosk({ event, menu, logs, actorId, isAdmin, initialSubmissionId
         <p role="status" className={styles.saved}>{saved}</p>
       </section>
     </div>
-    <RecentLogs logs={logs} isAdmin={isAdmin} actorId={actorId} />
+    <RecentLogs logs={logs} />
     <footer className={styles.footer}>BREWED TOGETHER, BY LATTE LAB.</footer>
   </div></main>;
 }
