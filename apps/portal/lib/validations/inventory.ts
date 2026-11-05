@@ -35,17 +35,34 @@ export const recipeBodySchema = z.object({
 }).strict();
 export type RecipeBody = z.infer<typeof recipeBodySchema>;
 
+/** Supplier and bag size identify one way of buying an ingredient; import matches purchase options on this key. */
+export function packageKey(supplier: string, bagSize: number) { return `${supplier.trim().toLowerCase()}|${bagSize}`; }
+
+// One way of buying an ingredient: Costco 946 ml cartons and Star Market 1.89 l jugs are two options for one milk.
+export const packageFieldsSchema = z.object({
+  id: z.uuid().optional(),
+  supplier: text(160).default(''),
+  bagSize: z.number().finite().positive('Each purchase option needs a bag size above zero.').max(1_000_000),
+  costPerBag: amount,
+  sealedBags: amount,
+  preferred: z.boolean().default(false),
+}).strict();
+export type PackageFields = z.infer<typeof packageFieldsSchema>;
+export const packagesSchema = z.array(packageFieldsSchema).max(20).superRefine((list, context) => {
+  const keys = list.map(option => packageKey(option.supplier, option.bagSize));
+  if (new Set(keys).size !== keys.length) context.addIssue({ code: 'custom', message: 'Each purchase option needs a different supplier or bag size.' });
+  if (list.filter(option => option.preferred).length > 1) context.addIssue({ code: 'custom', message: 'Mark at most one purchase option as preferred.' });
+});
+
+/** An ingredient that recipes use, with one or more ways of buying it. Counts, par and usage are per ingredient. */
 export const itemFieldsSchema = z.object({
   name: text(160).min(1, 'Give the item a name.'),
   category: z.enum(itemCategories).catch('Other'),
   unit: z.enum(units),
-  bagSize: amount,
-  sealedBags: amount,
-  openBag: amount,
+  openAmount: amount,
   par: amount,
-  costPerUnit: amount,
-  supplier: text(160).default(''),
   notes: text(1000).default(''),
+  packages: packagesSchema,
 }).strict();
 export type ItemFields = z.infer<typeof itemFieldsSchema>;
 
@@ -53,7 +70,8 @@ export const saveItemSchema = itemFieldsSchema.extend({
   id: z.uuid().optional(), expectedVersion: z.number().int().positive().optional(),
 }).strict();
 export const countItemSchema = z.object({
-  id: z.uuid(), expectedVersion: z.number().int().positive(), sealedBags: amount, openBag: amount,
+  id: z.uuid(), expectedVersion: z.number().int().positive(), openAmount: amount,
+  packages: z.array(z.object({ id: z.uuid(), sealedBags: amount }).strict()).max(20),
 }).strict();
 export const deleteByIdSchema = z.object({ id: z.uuid() }).strict();
 
@@ -77,9 +95,10 @@ export const createRecipeSchema = z.object({ name: text(120).min(1, 'Give the re
 export const saveDraftSchema = z.object({ id: z.uuid(), expectedVersion: z.number().int().positive(), body: recipeBodySchema }).strict();
 export const recipeTransitionSchema = z.object({ id: z.uuid(), expectedVersion: z.number().int().positive() }).strict();
 
+// `auto` uses the published recipe whose name matches the drink, `none` stops tracking, a UUID pins a recipe.
 export const menuLinkSchema = z.object({
   eventId: z.uuid(), menuItemId: z.uuid(),
-  recipeId: z.uuid().nullable(),
+  recipe: z.union([z.literal('auto'), z.literal('none'), z.uuid()]),
   plannedServings: z.number().int().min(0).max(100_000),
 }).strict();
 
@@ -95,8 +114,16 @@ export const bundleEnvelopeSchema = z.object({
   recipes: z.array(z.unknown()).optional(),
   guidelines: z.array(z.unknown()).optional(),
 });
-export const bundleItemSchema = itemFieldsSchema.extend({
+// Prototype rows carry one bag size, sealed count and per-unit cost. Portal exports add `costPerBag` and `packages`.
+export const bundleItemSchema = z.object({
+  name: text(160).min(1, 'no name'),
+  category: z.enum(itemCategories).catch('Other'),
+  unit: z.enum(units, 'unit is not ml, g or each'),
   bagSize: amount.catch(0), sealedBags: amount.catch(0), openBag: amount.catch(0), par: amount.catch(0), costPerUnit: amount.catch(0),
+  costPerBag: amount.optional(),
+  supplier: text(160).catch(''),
+  notes: text(1000).catch(''),
+  packages: z.array(packageFieldsSchema.omit({ id: true }).strip()).max(20).optional(),
 }).strip();
 export const bundleEquipmentSchema = equipmentFieldsSchema.extend({
   quantity: z.number().int().min(0).max(10_000).catch(0),

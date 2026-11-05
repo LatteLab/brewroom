@@ -15,9 +15,18 @@ Date: November 5, 2026. Implements the [design](design.md). Paths are relative t
 - [x] Sidebar entry and POS event page link.
 - [x] Tests: `tests/inventory.test.ts` (domain) and `tests/inventory-db.test.ts` (real PostgreSQL). `tests/pos-db.test.ts` now drops inventory tables before its reset, because they reference POS tables.
 
+## Follow-up: purchase options, name matching and running-low warnings
+
+- [x] `inventory_item_packages`: one ingredient, many purchase options priced per bag; cost per unit derived and weighted by sealed stock. Migration edited in place because it has not been applied anywhere.
+- [x] Item dialog edits purchase options; the stock table counts sealed bags per option plus one open amount.
+- [x] POS drinks resolve their recipe by name (`resolveDrinkRecipes`), with pin and don't-track overrides (`inventory_menu_links.track`).
+- [x] `drinkCapacity` / `drinkWarnings` and `DrinkWarnings`: warning at 20 or fewer, on the kiosk (`notice` prop, errors caught), event page and Stock page.
+- [x] CSV with one row per purchase option; bundle keeps the prototype single-bag shape and adds `costPerBag` and `packages`.
+
 ## Verification record
 
-- `pnpm --filter @lattelab/portal test:inventory`: 7 pass.
+- After the follow-up: `test:inventory` 10 pass, `test:inventory:db` 8 pass, `test:pos` 8 pass, `test:pos:db` 17 pass. Lint has no errors (5 existing warnings). Migration and `drizzle-kit push` DDL match. The real prototype bundle converts with identical quantities and costs per unit. In the browser, a drink named like a recipe deducted with no setup, a count of 3,000 ml whole milk raised "About 15 Vanilla Latte left" on the Stock page and kiosk, and logging one drink in the kiosk changed it to 14.
+- `pnpm --filter @lattelab/portal test:inventory`: 7 pass (first version).
 - `test:inventory:db` and `test:pos:db` against a disposable loopback `lattelab_pos_integration` (PostgreSQL 14): 5 and 16 pass. These include POS event deletion and concurrency with the new cascade FK in place.
 - `test:pos`: 8 pass. `lint`: no errors (5 existing warnings elsewhere). `typecheck`: passes.
 - `build` passes with placeholder environment values. Without them it stops at the existing email page for lack of a Resend key, as the README notes.

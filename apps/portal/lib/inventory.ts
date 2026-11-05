@@ -1,12 +1,12 @@
 // Inventory domain rules. Pure functions only: no database and no React, so they can be tested directly.
 // Ported from the prototype's schema.js (LatteLab/inventory-system-draft) and extended so recipes respond to
 // POS drink configurations. See docs/specs/2026-11-05-inventory/design.md.
-import type { z } from 'zod';
-import type { Configuration } from './validations/pos';
+import { z } from 'zod';
+import type { Configuration, MenuOptions } from './validations/pos';
 import {
   BUNDLE_FORMAT, BUNDLE_VERSION, bundleEnvelopeSchema, bundleEquipmentSchema, bundleItemSchema, bundleRecipeSchema,
-  equipmentStatuses, itemCategories, units,
-  type EquipmentFields, type Ingredient, type ItemFields, type RecipeBody,
+  equipmentStatuses, itemCategories, itemFieldsSchema, packageKey, units,
+  type EquipmentFields, type Ingredient, type ItemFields, type PackageFields, type RecipeBody,
 } from './validations/inventory';
 
 export class InventoryError extends Error {}
@@ -33,10 +33,33 @@ export function fmtQty(value: number) { return round(value, 2).toLocaleString('e
 export function fmtMoney(value: number) { return '$' + finite(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 // ----------------------------------------------------------------- stock
+// An item is one ingredient (what recipes name). Its purchase options are the ways we buy it: supplier, bag size,
+// cost per bag and how many sealed bags of that option are on hand. Counts and usage are per ingredient.
 
-export type StockFields = Pick<ItemFields, 'bagSize' | 'sealedBags' | 'openBag'>;
-/** Units physically counted: sealed bags plus whatever is left in the open one. Never stored. */
-export function countedQuantity(item: StockFields) { return round(item.bagSize * item.sealedBags + item.openBag); }
+export type PackageLike = Pick<PackageFields, 'supplier' | 'bagSize' | 'costPerBag' | 'sealedBags' | 'preferred'>;
+export type StockFields = { openAmount: number; packages: Pick<PackageLike, 'bagSize' | 'sealedBags'>[] };
+/** Units physically counted: every purchase option's sealed bags plus the open amount. Never stored. */
+export function countedQuantity(item: StockFields) {
+  return round(item.packages.reduce((sum, option) => sum + option.bagSize * option.sealedBags, 0) + item.openAmount);
+}
+const perUnit = (option: Pick<PackageLike, 'costPerBag' | 'bagSize'>) => option.costPerBag / option.bagSize;
+/** The option to buy more of: the one marked preferred, otherwise the cheapest per unit. */
+export function reorderOption<T extends PackageLike>(packages: T[]): T | null {
+  return packages.find(option => option.preferred) ?? [...packages].sort((a, b) => perUnit(a) - perUnit(b))[0] ?? null;
+}
+/**
+ * Dollars per unit, derived from cost per bag. Weighted by the sealed stock on hand, so mixing suppliers or sizes
+ * averages correctly; with no sealed stock it falls back to the option you would buy next.
+ */
+export function unitCost(packages: PackageLike[]) {
+  const sealedUnits = packages.reduce((sum, option) => sum + option.bagSize * option.sealedBags, 0);
+  if (sealedUnits > 0) return packages.reduce((sum, option) => sum + option.costPerBag * option.sealedBags, 0) / sealedUnits;
+  const next = reorderOption(packages);
+  return next ? perUnit(next) : 0;
+}
+export function packageLabel(option: Pick<PackageLike, 'supplier' | 'bagSize'>, unit: string) {
+  return `${option.supplier || 'Any supplier'} · ${fmtQty(option.bagSize)} ${unit}`;
+}
 /** `out` at or below zero, `low` at or below par, otherwise `ok`. A par of zero never flags low. */
 export function stockStatus(quantity: number, par: number): 'out' | 'low' | 'ok' {
   if (quantity <= 0) return 'out';
@@ -115,9 +138,34 @@ export function checkRecipe(body: RecipeBody, servings: number, stock: Map<strin
 
 export type UsageLog = { menuItemId: string; configuration: Configuration; quantity: number; recordedAt: Date | string };
 export type RecipeRef = { id: string; name: string; published: RecipeBody | null };
-export type DrinkLinks = Map<string, string | null>; // POS menu item id -> recipe id
+export type DrinkLinks = Map<string, string | null>; // POS menu item id -> recipe id used for usage
 export function recipeRefs(recipes: ({ id: string } & RecipeDoc)[]) {
   return new Map<string, RecipeRef>(recipes.map(recipe => [recipe.id, { id: recipe.id, name: workingBody(recipe).name, published: recipe.published }]));
+}
+
+export type LinkRow = { menuItemId: string; recipeId: string | null; track: boolean };
+export type LinkSource = 'pinned' | 'auto' | 'off' | 'unmatched';
+/**
+ * Which recipe each POS drink pours. A pinned recipe wins; `track = false` turns usage off; otherwise the drink uses
+ * the published recipe with the same name, so a new event's menu deducts stock without any setup. Names are compared
+ * as slugs ("Vanilla latte" matches "Vanilla Latte"); a name shared by two published recipes matches neither.
+ */
+export function resolveDrinkRecipes(drinks: { id: string; name: string }[], links: Map<string, LinkRow>, recipes: Map<string, RecipeRef>) {
+  const byName = new Map<string, string | null>();
+  for (const recipe of recipes.values()) {
+    if (!recipe.published) continue;
+    const key = slugify(recipe.published.name);
+    byName.set(key, byName.has(key) ? null : recipe.id);
+  }
+  const resolved: DrinkLinks = new Map(); const source = new Map<string, LinkSource>();
+  for (const drink of drinks) {
+    const link = links.get(drink.id);
+    if (link && !link.track) { resolved.set(drink.id, null); source.set(drink.id, 'off'); continue; }
+    if (link?.recipeId) { resolved.set(drink.id, link.recipeId); source.set(drink.id, 'pinned'); continue; }
+    const match = byName.get(slugify(drink.name)) ?? null;
+    resolved.set(drink.id, match); source.set(drink.id, match ? 'auto' : 'unmatched');
+  }
+  return { links: resolved, source };
 }
 
 function servingBody(menuItemId: string, links: DrinkLinks, recipes: Map<string, RecipeRef>) {
@@ -129,9 +177,9 @@ function servingBody(menuItemId: string, links: DrinkLinks, recipes: Map<string,
 }
 
 /**
- * Ingredient use implied by valid POS drink logs. Only the published body of a linked recipe counts, matching the
+ * Ingredient use implied by valid POS drink logs. Only the published body of a drink's recipe counts, matching the
  * prototype's rule that drafts are never served. `countedAt` limits each item to drinks recorded after its last
- * count, which is how the stock view estimates what is left without ever writing to the count.
+ * count, which is how the stock view keeps on-hand current without ever writing to the count.
  */
 export function usageFromLogs(logs: UsageLog[], links: DrinkLinks, recipes: Map<string, RecipeRef>, countedAt?: Map<string, Date>) {
   const byItem = new Map<string, number>();
@@ -151,12 +199,16 @@ export function usageFromLogs(logs: UsageLog[], links: DrinkLinks, recipes: Map<
   return { byItem, drinksCounted: counted, drinksUnlinked: unlinked, drinksUnpublished: unpublished };
 }
 
-export type StockLine = { name: string; unit: string; bagSize: number; costPerUnit: number; onHand: number };
-export function stockMap(items: StockLine[]) {
-  return new Map<string, StockLine>(items.map(({ name, unit, bagSize, costPerUnit, onHand }) => [name, { name, unit, bagSize, costPerUnit, onHand }]));
+export type StockLine = { name: string; unit: string; costPerUnit: number; onHand: number; reorder: { label: string; bagSize: number } | null };
+type StockSource = { name: string; unit: string; onHand: number; packages: PackageLike[] };
+export function stockMap(items: StockSource[]) {
+  return new Map<string, StockLine>(items.map(item => {
+    const next = reorderOption(item.packages);
+    return [item.name, { name: item.name, unit: item.unit, onHand: item.onHand, costPerUnit: unitCost(item.packages), reorder: next ? { label: packageLabel(next, item.unit), bagSize: next.bagSize } : null }];
+  }));
 }
-export type DemandRow = { item: string; unit: string; needed: number; onHand: number | null; known: boolean; enough: boolean; short: number; cost: number; buyBags: number; bagSize: number };
-/** Compare a per-item demand total against stock, with a shopping line rounded up to whole sealed bags. */
+export type DemandRow = { item: string; unit: string; needed: number; onHand: number | null; known: boolean; enough: boolean; short: number; cost: number; buyBags: number; buyLabel: string };
+/** Compare a per-item demand total against stock, with a shopping line in whole bags of the option to buy. */
 export function demandRows(totals: Map<string, number>, stock: Map<string, StockLine>): DemandRow[] {
   return [...totals.entries()].map(([name, rawNeeded]) => {
     const item = stock.get(name) ?? null; const needed = round(rawNeeded);
@@ -166,8 +218,8 @@ export function demandRows(totals: Map<string, number>, stock: Map<string, Stock
     return {
       item: name, unit: item?.unit ?? '', needed, onHand, known, enough, short: shortBy,
       cost: item ? needed * item.costPerUnit : 0,
-      buyBags: item && shortBy > 0 && item.bagSize > 0 ? Math.ceil(shortBy / item.bagSize) : 0,
-      bagSize: item?.bagSize ?? 0,
+      buyBags: item?.reorder && shortBy > 0 ? Math.ceil(shortBy / item.reorder.bagSize) : 0,
+      buyLabel: item?.reorder?.label ?? '',
     };
   }).sort((a, b) => a.item.localeCompare(b.item));
 }
@@ -192,10 +244,65 @@ export function eventPlan(menu: PlanDrink[], links: DrinkLinks, recipes: Map<str
   return { rows, drinks, unlinked, unpublished, short: rows.filter(row => row.known && !row.enough), missing: rows.filter(row => !row.known), cost: rows.reduce((sum, row) => sum + row.cost, 0) };
 }
 
-// ------------------------------------------------------------------- CSV
-// Same columns as the prototype and its counting spreadsheet, so a counted sheet pastes straight back in.
+// --------------------------------------------------- drinks left warnings
 
-export const CSV_COLUMNS = ['Item', 'Category', 'Unit', 'Bag size', 'Sealed bags', 'Open bag', 'Qty on hand', 'Par level', 'Cost per unit', 'Supplier', 'Notes'] as const;
+/** Warn once a drink can be made this many times or fewer from current stock. */
+export const DRINKS_LEFT_WARNING = 20;
+
+/** Every configuration a POS drink allows. Hot drinks have no ice choice. */
+export function configurationsFor(options: Omit<MenuOptions, 'defaults'>): Configuration[] {
+  const out: Configuration[] = [];
+  for (const temperature of options.temperatures) for (const milk of options.milks) for (const syrup of options.syrups) {
+    if (temperature === 'Hot') out.push({ temperature, milk, syrup });
+    else for (const ice of options.iceLevels) out.push({ temperature, milk, syrup, ice });
+  }
+  return out;
+}
+
+export type DrinkLimit = { item: string; unit: string; onHand: number; perDrink: number; drinksLeft: number; when: Ingredient['when'] };
+/**
+ * How many more of one drink current stock allows. Each ingredient is taken at its largest per-drink amount over the
+ * drink's allowed choices, so the figure is cautious: "at most N more if every order used it". Each drink is assessed
+ * as if it had the stock to itself; shared ingredients such as beans run down for every drink at once.
+ */
+export function drinkCapacity(body: RecipeBody, options: Omit<MenuOptions, 'defaults'>, stock: Map<string, { unit: string; onHand: number }>) {
+  const perDrink = new Map<string, number>();
+  for (const configuration of configurationsFor(options)) {
+    for (const [item, amount] of addDrinkUsage(new Map(), body, configuration, 1)) perDrink.set(item, Math.max(perDrink.get(item) ?? 0, amount));
+  }
+  // An item on several lines with different conditions is reported as used by every drink.
+  const when = new Map<string, Ingredient['when']>();
+  for (const line of body.ingredients) when.set(line.item, when.has(line.item) && when.get(line.item) !== line.when ? 'always' : line.when);
+  const limits: DrinkLimit[] = []; const missing: string[] = [];
+  for (const [item, amount] of perDrink) {
+    const line = stock.get(item);
+    if (!line) { missing.push(item); continue; }
+    limits.push({ item, unit: line.unit, onHand: line.onHand, perDrink: amount, drinksLeft: Math.floor(round(Math.max(0, line.onHand) / amount, 6)), when: when.get(item) ?? 'always' });
+  }
+  limits.sort((a, b) => a.drinksLeft - b.drinksLeft || a.item.localeCompare(b.item));
+  return { drinksLeft: limits.length ? limits[0].drinksLeft : null, limits, missing };
+}
+
+export type DrinkWarning = { menuItemId: string; name: string; drinksLeft: number; limits: DrinkLimit[] };
+/** Drinks that can be made `threshold` or fewer more times, with every ingredient that holds them there. */
+export function drinkWarnings(drinks: { id: string; name: string; options: Omit<MenuOptions, 'defaults'> }[], links: DrinkLinks, recipes: Map<string, RecipeRef>, stock: Map<string, StockLine>, threshold = DRINKS_LEFT_WARNING): DrinkWarning[] {
+  const warnings: DrinkWarning[] = [];
+  for (const drink of drinks) {
+    const serving = servingBody(drink.id, links, recipes);
+    if (!serving.body) continue;
+    const capacity = drinkCapacity(serving.body, drink.options, stock);
+    if (capacity.drinksLeft === null || capacity.drinksLeft > threshold) continue;
+    warnings.push({ menuItemId: drink.id, name: drink.name, drinksLeft: capacity.drinksLeft, limits: capacity.limits.filter(limit => limit.drinksLeft <= threshold) });
+  }
+  return warnings.sort((a, b) => a.drinksLeft - b.drinksLeft || a.name.localeCompare(b.name));
+}
+
+// ------------------------------------------------------------------- CSV
+// One row per purchase option, so each supplier and bag size is counted on its own line. Rows sharing an Item name
+// form one ingredient: item-level fields come from its first row and open amounts are summed. The prototype's
+// one-row-per-item sheets, with "Cost per unit" instead of "Cost per bag", still import.
+
+export const CSV_COLUMNS = ['Item', 'Category', 'Unit', 'Supplier', 'Bag size', 'Sealed bags', 'Open bag', 'Qty on hand', 'Par level', 'Cost per bag', 'Cost per unit', 'Notes'] as const;
 const CSV_ALIASES: Record<string, string[]> = { 'Bag size': ['Pack size'], 'Sealed bags': ['Packs on hand', 'Packs'], 'Open bag': ['Loose/open', 'Loose'] };
 const textCell = (value: string) => value.replace(/^([=+@-])/, "'$1");
 function csvCell(value: string | number) { const s = String(value ?? ''); return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s; }
@@ -204,7 +311,15 @@ export function inventoryToCsv(items: ItemFields[]) {
   const sorted = [...items].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   const lines = [CSV_COLUMNS.join(',')];
   for (const item of sorted) {
-    lines.push([textCell(item.name), textCell(item.category), item.unit, item.bagSize, item.sealedBags, item.openBag, countedQuantity(item), item.par, item.costPerUnit, textCell(item.supplier), textCell(item.notes)].map(csvCell).join(','));
+    const options: (ItemFields['packages'][number] | null)[] = item.packages.length ? item.packages : [null];
+    options.forEach((option, index) => {
+      const first = index === 0; const open = first ? item.openAmount : 0;
+      lines.push([
+        textCell(item.name), textCell(item.category), item.unit, textCell(option?.supplier ?? ''), option?.bagSize ?? '', option?.sealedBags ?? '',
+        first ? open : '', round((option ? option.bagSize * option.sealedBags : 0) + open), first ? item.par : '',
+        option?.costPerBag ?? '', option ? round(perUnit(option), 6) : '', first ? textCell(item.notes) : '',
+      ].map(csvCell).join(','));
+    });
   }
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
@@ -225,7 +340,10 @@ export function parseCsv(text: string) {
   return rows.filter(r => r.some(cell => cell.trim() !== ''));
 }
 
-/** Columns are matched by header name, so order does not matter. "Qty on hand" is ignored: it is always derived. */
+/**
+ * Columns are matched by header name, so order does not matter. "Qty on hand" is ignored: it is always derived.
+ * A bad row skips its whole ingredient, so a partial ingredient is never imported.
+ */
 export function csvToInventory(text: string) {
   const rows = parseCsv(text); const errors: string[] = [];
   if (!rows.length) return { items: [] as ItemFields[], errors: ['Nothing to import.'] };
@@ -233,38 +351,55 @@ export function csvToInventory(text: string) {
   const col = (name: string) => [name, ...(CSV_ALIASES[name] ?? [])].map(n => header.indexOf(n.toLowerCase())).find(at => at >= 0) ?? -1;
   const nameAt = col('Item');
   if (nameAt < 0) return { items: [], errors: ['No "Item" column found. Keep the header row from the export.'] };
-  const at = { category: col('Category'), unit: col('Unit'), bagSize: col('Bag size'), sealedBags: col('Sealed bags'), openBag: col('Open bag'), par: col('Par level'), costPerUnit: col('Cost per unit'), supplier: col('Supplier'), notes: col('Notes') };
+  const at = { category: col('Category'), unit: col('Unit'), supplier: col('Supplier'), bagSize: col('Bag size'), sealedBags: col('Sealed bags'), openBag: col('Open bag'), par: col('Par level'), costPerBag: col('Cost per bag'), costPerUnit: col('Cost per unit'), notes: col('Notes') };
   const get = (r: string[], i: number) => (i >= 0 && r[i] !== undefined ? r[i].trim().replace(/^'([=+@-])/, '$1') : '');
-  const items: ItemFields[] = []; const seen = new Set<string>();
+  const byName = new Map<string, ItemFields>(); const rejected = new Set<string>();
   rows.slice(1).forEach((r, index) => {
-    const name = get(r, nameAt); if (!name) return;
-    const line = `Row ${index + 2} (${name})`;
+    const name = get(r, nameAt); if (!name || rejected.has(name)) return;
+    const reject = (message: string) => { errors.push(`Row ${index + 2} (${name}): ${message}`); rejected.add(name); byName.delete(name); };
     const unit = get(r, at.unit) || 'each';
-    if (!(units as readonly string[]).includes(unit)) { errors.push(`${line}: unit "${unit}" is not ml, g or each.`); return; }
-    if (seen.has(name)) { errors.push(`${line}: the item appears more than once.`); return; }
-    const numbers = { bagSize: get(r, at.bagSize), sealedBags: get(r, at.sealedBags), openBag: get(r, at.openBag), par: get(r, at.par), costPerUnit: get(r, at.costPerUnit) };
-    const bad = Object.entries(numbers).find(([, value]) => value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0));
-    if (bad) { errors.push(`${line}: "${bad[1]}" is not a number of zero or more.`); return; }
-    const category = get(r, at.category);
-    seen.add(name);
-    items.push({
-      name, unit: unit as ItemFields['unit'],
-      category: (itemCategories as readonly string[]).includes(category) ? category as ItemFields['category'] : 'Other',
-      bagSize: finite(numbers.bagSize), sealedBags: finite(numbers.sealedBags), openBag: finite(numbers.openBag), par: finite(numbers.par), costPerUnit: finite(numbers.costPerUnit),
-      supplier: get(r, at.supplier), notes: get(r, at.notes),
-    });
+    if (!(units as readonly string[]).includes(unit)) return reject(`unit "${unit}" is not ml, g or each.`);
+    const numbers = { bagSize: get(r, at.bagSize), sealedBags: get(r, at.sealedBags), openBag: get(r, at.openBag), par: get(r, at.par), costPerBag: get(r, at.costPerBag), costPerUnit: get(r, at.costPerUnit) };
+    const bad = Object.values(numbers).find(value => value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0));
+    if (bad !== undefined) return reject(`"${bad}" is not a number of zero or more.`);
+    let item = byName.get(name);
+    if (!item) {
+      const category = get(r, at.category);
+      item = { name, unit: unit as ItemFields['unit'], category: (itemCategories as readonly string[]).includes(category) ? category as ItemFields['category'] : 'Other', openAmount: 0, par: finite(numbers.par), notes: get(r, at.notes), packages: [] };
+      byName.set(name, item);
+    } else if (item.unit !== unit) return reject(`unit "${unit}" differs from this item's earlier rows.`);
+    item.openAmount = round(item.openAmount + finite(numbers.openBag));
+    const bagSize = finite(numbers.bagSize);
+    if (bagSize <= 0) return;
+    const supplier = get(r, at.supplier);
+    if (item.packages.some(option => packageKey(option.supplier, option.bagSize) === packageKey(supplier, bagSize))) return reject(`the purchase option "${supplier || 'no supplier'}, ${bagSize}" appears more than once.`);
+    const costPerBag = numbers.costPerBag !== '' ? finite(numbers.costPerBag) : round(finite(numbers.costPerUnit) * bagSize, 4);
+    item.packages.push({ supplier, bagSize, costPerBag, sealedBags: finite(numbers.sealedBags), preferred: false });
   });
-  return { items, errors };
+  return { items: [...byName.values()], errors };
 }
 
 // ---------------------------------------------------------------- bundle
 
 export type BundleRecipe = { slug: string; status: 'published' | 'draft'; body: RecipeBody };
-/** One JSON file holding inventory, equipment and recipes, readable by the prototype and its build tools. */
+/**
+ * One JSON file holding inventory, equipment and recipes. Each inventory row keeps the prototype's single-bag shape,
+ * using the option to buy next, with sealed bags expressed in that size so bagSize × sealedBags + openBag is still the
+ * total. `costPerBag` and the full `packages` list are additive fields the portal reads back.
+ */
 export function buildBundle(items: ItemFields[], equipment: EquipmentFields[], recipes: { slug: string; published: RecipeBody | null; draft: RecipeBody | null }[], exportedAt = new Date()) {
   return {
     format: BUNDLE_FORMAT, version: BUNDLE_VERSION, exportedAt: exportedAt.toISOString(),
-    inventory: items.map(item => ({ name: item.name, category: item.category, unit: item.unit, bagSize: item.bagSize, sealedBags: item.sealedBags, openBag: item.openBag, par: item.par, costPerUnit: item.costPerUnit, supplier: item.supplier, notes: item.notes })),
+    inventory: items.map(item => {
+      const next = reorderOption(item.packages);
+      const sealedUnits = item.packages.reduce((sum, option) => sum + option.bagSize * option.sealedBags, 0);
+      return {
+        name: item.name, category: item.category, unit: item.unit,
+        bagSize: next?.bagSize ?? 0, sealedBags: next ? round(sealedUnits / next.bagSize, 6) : 0, openBag: item.openAmount,
+        par: item.par, costPerUnit: round(unitCost(item.packages), 6), costPerBag: next?.costPerBag ?? 0, supplier: next?.supplier ?? '', notes: item.notes,
+        packages: item.packages.map(({ supplier, bagSize, costPerBag, sealedBags, preferred }) => ({ supplier, bagSize, costPerBag, sealedBags, preferred })),
+      };
+    }),
     equipment: equipment.map(item => ({ name: item.name, category: item.category, quantity: item.quantity, status: item.status, location: item.location, custodian: item.custodian, serial: item.serial, notes: item.notes, lastCheckedAt: item.lastCheckedAt })),
     // A recipe with unpublished edits exports its published body: the bundle carries what is actually served.
     recipes: recipes.map(recipe => {
@@ -274,6 +409,17 @@ export function buildBundle(items: ItemFields[], equipment: EquipmentFields[], r
     guidelines: [],
   };
 }
+
+// A prototype row becomes one ingredient with one purchase option; a portal row brings its own `packages` list.
+const bundleInventorySchema = bundleItemSchema.transform((row, context): ItemFields => {
+  const item = itemFieldsSchema.safeParse({
+    name: row.name, category: row.category, unit: row.unit, openAmount: row.openBag, par: row.par, notes: row.notes,
+    packages: row.packages ?? (row.bagSize > 0 ? [{ supplier: row.supplier, bagSize: row.bagSize, costPerBag: row.costPerBag ?? round(row.costPerUnit * row.bagSize, 4), sealedBags: row.sealedBags, preferred: false }] : []),
+  });
+  if (item.success) return item.data;
+  for (const issue of item.error.issues) context.addIssue({ code: 'custom', message: issue.message });
+  return z.NEVER;
+});
 
 /**
  * Validate a parsed bundle before anything is written. Rows that fail are skipped and named, never silently accepted.
@@ -299,7 +445,7 @@ export function readBundle(parsed: unknown) {
     });
     return out;
   };
-  const inventory = take(value.inventory, 'inventory', bundleItemSchema, row => row.name);
+  const inventory = take(value.inventory, 'inventory', bundleInventorySchema, row => row.name);
   const equipment = take(value.equipment, 'equipment', bundleEquipmentSchema, row => row.name);
   const recipes: BundleRecipe[] = take(value.recipes, 'recipe', bundleRecipeSchema, row => row.slug ? slugify(row.slug) : slugify(row.name))
     .map(row => ({ slug: row.slug ? slugify(row.slug) : slugify(row.name), status: row.status, body: { name: row.name, category: row.category, ingredients: row.ingredients, steps: row.steps, notes: row.notes } }));

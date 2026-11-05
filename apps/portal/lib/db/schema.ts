@@ -314,18 +314,15 @@ export type PosDrinkLog = typeof posDrinkLogs.$inferSelect;
 // ============================================================================
 // Separate `inventory_` tables. They read POS menu items and drink logs but never write to POS tables.
 
+// One row per ingredient that recipes name. Quantity on hand is derived from its purchase options and open amount.
 export const inventoryItems = pgTable('inventory_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull().unique('inventory_item_name'),
   category: text('category').$type<ItemFields['category']>().notNull(),
   unit: text('unit').$type<ItemFields['unit']>().notNull(),
-  bagSize: doublePrecision('bag_size').default(0).notNull(),
-  sealedBags: doublePrecision('sealed_bags').default(0).notNull(),
-  openBag: doublePrecision('open_bag').default(0).notNull(),
+  openAmount: doublePrecision('open_amount').default(0).notNull(),
   countedAt: timestamp('counted_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
   par: doublePrecision('par').default(0).notNull(),
-  costPerUnit: doublePrecision('cost_per_unit').default(0).notNull(),
-  supplier: text('supplier').default('').notNull(),
   notes: text('notes').default('').notNull(),
   version: integer('version').default(1).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
@@ -333,8 +330,24 @@ export const inventoryItems = pgTable('inventory_items', {
 }, table => [
   check('inventory_item_unit', sql`${table.unit} IN ('ml', 'g', 'each')`),
   check('inventory_item_name_present', sql`length(trim(${table.name})) > 0`),
-  check('inventory_item_amounts', sql`${table.bagSize} >= 0 AND ${table.sealedBags} >= 0 AND ${table.openBag} >= 0 AND ${table.par} >= 0 AND ${table.costPerUnit} >= 0`),
+  check('inventory_item_amounts', sql`${table.openAmount} >= 0 AND ${table.par} >= 0`),
   check('inventory_item_version', sql`${table.version} > 0`),
+]).enableRLS();
+
+// Ways of buying one ingredient: supplier, bag size and cost per bag differ, the ingredient and its count do not.
+export const inventoryItemPackages = pgTable('inventory_item_packages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  itemId: uuid('item_id').notNull().references(() => inventoryItems.id, { onDelete: 'cascade' }),
+  supplier: text('supplier').default('').notNull(),
+  bagSize: doublePrecision('bag_size').notNull(),
+  costPerBag: doublePrecision('cost_per_bag').default(0).notNull(),
+  sealedBags: doublePrecision('sealed_bags').default(0).notNull(),
+  preferred: boolean('preferred').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, table => [
+  check('inventory_package_amounts', sql`${table.bagSize} > 0 AND ${table.costPerBag} >= 0 AND ${table.sealedBags} >= 0`),
+  uniqueIndex('inventory_package_option').on(table.itemId, sql`lower(${table.supplier})`, table.bagSize),
+  uniqueIndex('inventory_package_preferred').on(table.itemId).where(sql`${table.preferred}`),
 ]).enableRLS();
 
 export const inventoryRecipes = pgTable('inventory_recipes', {
@@ -375,12 +388,14 @@ export const inventoryEquipment = pgTable('inventory_equipment', {
   check('inventory_equipment_version', sql`${table.version} > 0`),
 ]).enableRLS();
 
-// One row per POS menu drink that inventory knows about: which recipe it pours and how many are planned.
+// Overrides and plans for POS menu drinks. A drink with no row uses the published recipe matching its name.
 // Cascades with the menu item so deleting a POS event is never blocked by inventory.
 export const inventoryMenuLinks = pgTable('inventory_menu_links', {
   menuItemId: uuid('menu_item_id').primaryKey(),
   eventId: uuid('event_id').notNull(),
   recipeId: uuid('recipe_id').references(() => inventoryRecipes.id, { onDelete: 'set null' }),
+  // False stops usage for this drink. True with no recipe uses the published recipe matching the drink's name.
+  track: boolean('track').default(true).notNull(),
   plannedServings: integer('planned_servings').default(0).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
   updatedBy: text('updated_by').references(() => users.id),
@@ -392,6 +407,7 @@ export const inventoryMenuLinks = pgTable('inventory_menu_links', {
 ]).enableRLS();
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InventoryItemPackage = typeof inventoryItemPackages.$inferSelect;
 export type InventoryRecipe = typeof inventoryRecipes.$inferSelect;
 export type InventoryEquipment = typeof inventoryEquipment.$inferSelect;
 export type InventoryMenuLink = typeof inventoryMenuLinks.$inferSelect;

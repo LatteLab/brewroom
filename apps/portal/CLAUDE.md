@@ -110,7 +110,7 @@ lib/
 - `pos_events` — POS event name and Eastern service window, separate from registration events
 - `pos_event_menu_items` — Event-specific drinks, options/defaults, ordering, availability, and archive timestamp
 - `pos_drink_logs` — Recorded-order snapshots, quantities, retry IDs, corrections, voids, and optional kerbs
-- `inventory_items`, `inventory_recipes`, `inventory_equipment`, `inventory_menu_links` — Inventory tab (see `docs/specs/2026-11-05-inventory/`)
+- `inventory_items`, `inventory_item_packages`, `inventory_recipes`, `inventory_equipment`, `inventory_menu_links` — Inventory tab (see `docs/specs/2026-11-05-inventory/`)
 
 ## POS contract
 
@@ -168,7 +168,7 @@ if (!session?.user) throw new Error("Unauthorized");
 
 **Error boundaries:** Route-group `error.tsx` files (`(admin)`, `(user)`) use shared `components/error-boundary-content.tsx`. `app/global-error.tsx` replaces the root layout entirely — must import `globals.css` directly and load Geist font via `<link>` tag since `next/font` isn't available. All error boundaries report to PostHog via `posthog.captureException()`. Server-side errors captured in `instrumentation.ts` — use `posthog.flush()` (not await on `captureException`) to ensure delivery in serverless.
 
-**Inventory and POS:** Inventory reads POS menus and valid drink logs but never writes POS tables. Stock on hand is derived as counted (bag size × sealed bags + open bag) minus usage from valid logs recorded after the item's `counted_at`; never store it. Only a recipe's `published` body affects usage and plans. `inventory_menu_links` cascades with POS menu items, so POS event deletion needs no inventory step. Database test suites that reset POS tables must drop `inventory_` tables first.
+**Inventory and POS:** Inventory reads POS menus and valid drink logs but never writes POS tables. An item is one ingredient; `inventory_item_packages` are its purchase options, priced per bag (cost per unit is derived). Stock on hand is derived as counted (Σ bag size × sealed bags + open amount) minus usage from valid logs recorded after the item's `counted_at`; never store it. A POS drink uses the published recipe matching its name unless `inventory_menu_links` pins one or sets `track = false`. Only a recipe's `published` body affects usage, plans and the 20-drinks-left warnings. The kiosk shows those warnings through an optional `notice` prop and must keep logging if inventory fails. `inventory_menu_links` cascades with POS menu items, so POS event deletion needs no inventory step. Database test suites that reset POS tables must drop `inventory_` tables first.
 
 ## Gotchas
 

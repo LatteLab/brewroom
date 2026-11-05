@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildBundle, checkRecipe, countedQuantity, csvToInventory, demandRows, eventPlan, ingredientAmount, inventoryToCsv, readBundle, slugify, stockStatus, usageFromLogs,
-  type RecipeRef, type StockLine,
+  DRINKS_LEFT_WARNING, buildBundle, checkRecipe, configurationsFor, countedQuantity, csvToInventory, demandRows, drinkCapacity, drinkWarnings, eventPlan, ingredientAmount,
+  inventoryToCsv, readBundle, reorderOption, resolveDrinkRecipes, slugify, stockMap, stockStatus, unitCost, usageFromLogs,
+  type LinkRow, type RecipeRef,
 } from '../lib/inventory';
-import type { ItemFields, RecipeBody } from '../lib/validations/inventory';
-import type { Configuration } from '../lib/validations/pos';
+import { itemFieldsSchema, type ItemFields, type PackageFields, type RecipeBody } from '../lib/validations/inventory';
+import { defaultMenuOptions, type Configuration } from '../lib/validations/pos';
 
 const iced: Configuration = { temperature: 'Iced', milk: 'Oat', syrup: 50, ice: 'Light' };
 const hot: Configuration = { temperature: 'Hot', milk: 'Whole', syrup: 100 };
@@ -21,15 +22,33 @@ const latte: RecipeBody = {
     { item: 'Cold cups', qty: 1, unit: 'each', note: '', when: 'iced', scale: 'fixed' },
   ],
 };
-const item = (name: string, overrides: Partial<ItemFields> = {}): ItemFields => ({ name, category: 'Other', unit: 'ml', bagSize: 0, sealedBags: 0, openBag: 0, par: 0, costPerUnit: 0, supplier: '', notes: '', ...overrides });
+const option = (overrides: Partial<PackageFields> = {}): PackageFields => ({ supplier: '', bagSize: 1000, costPerBag: 0, sealedBags: 0, preferred: false, ...overrides });
+const item = (name: string, overrides: Partial<ItemFields> = {}): ItemFields => ({ name, category: 'Other', unit: 'ml', openAmount: 0, par: 0, notes: '', packages: [], ...overrides });
+const onHand = (name: string, unit: string, amount: number, packages: PackageFields[] = []) => ({ name, unit, onHand: amount, packages });
 
-test('quantity on hand is derived from sealed bags plus the open bag, and status follows par', () => {
-  assert.equal(countedQuantity({ bagSize: 946, sealedBags: 8, openBag: 120 }), 7688);
+test('quantity on hand adds every purchase option to the open amount, and status follows par', () => {
+  assert.equal(countedQuantity({ openAmount: 120, packages: [option({ bagSize: 946, sealedBags: 8 })] }), 7688);
+  assert.equal(countedQuantity({ openAmount: 500, packages: [option({ bagSize: 3785, sealedBags: 2 }), option({ bagSize: 1893, sealedBags: 1 })] }), 9963);
   assert.equal(stockStatus(0, 100), 'out');
   assert.equal(stockStatus(-5, 0), 'out');
   assert.equal(stockStatus(100, 100), 'low');
   assert.equal(stockStatus(101, 100), 'ok');
   assert.equal(stockStatus(1, 0), 'ok');
+});
+
+test('cost per unit is derived from cost per bag, averaged over sealed stock across suppliers and sizes', () => {
+  const costco = option({ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2 });
+  const star = option({ supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1 });
+  assert.equal(unitCost([costco, star]), (4.5 * 2 + 3.2) / (3785 * 2 + 1893));
+  // With nothing sealed, use the option to buy next: preferred first, otherwise the cheapest per unit.
+  const empty = [{ ...costco, sealedBags: 0 }, { ...star, sealedBags: 0 }];
+  assert.equal(reorderOption(empty)?.supplier, 'Costco');
+  assert.equal(reorderOption([empty[0], { ...empty[1], preferred: true }])?.supplier, 'Star Market');
+  assert.equal(unitCost(empty), 4.5 / 3785);
+  assert.equal(unitCost([]), 0);
+  assert.equal(itemFieldsSchema.safeParse(item('Milk', { packages: [costco, { ...costco, supplier: ' costco ' }] })).success, false, 'the same supplier and size twice is one option');
+  assert.equal(itemFieldsSchema.safeParse(item('Milk', { packages: [{ ...costco, preferred: true }, { ...star, preferred: true }] })).success, false);
+  assert.equal(itemFieldsSchema.safeParse(item('Milk', { packages: [{ ...costco, bagSize: 0 }] })).success, false);
 });
 
 test('recipe lines follow the POS configuration: milk, temperature, syrup percent and ice level', () => {
@@ -41,7 +60,21 @@ test('recipe lines follow the POS configuration: milk, temperature, syrup percen
   assert.equal(ingredientAmount({ when: 'always', scale: 'ice', qty: 150 }, hot), 0, 'hot drinks never use ice');
 });
 
-test('usage from logs counts only published linked recipes and respects each item count time', () => {
+test('POS drinks use the published recipe with their name unless pinned or turned off', () => {
+  const recipes = new Map<string, RecipeRef>([
+    ['r1', { id: 'r1', name: 'Vanilla Latte', published: { ...latte, name: 'Vanilla Latte' } }],
+    ['r2', { id: 'r2', name: 'Mocha', published: null }],
+    ['r3', { id: 'r3', name: 'Chai', published: { ...latte, name: 'Chai' } }],
+    ['r4', { id: 'r4', name: 'Chai', published: { ...latte, name: 'chai' } }],
+  ]);
+  const drinks = [{ id: 'a', name: 'vanilla latte' }, { id: 'b', name: 'Mocha' }, { id: 'c', name: 'Chai' }, { id: 'd', name: 'House special' }, { id: 'e', name: 'Vanilla Latte' }, { id: 'f', name: 'Vanilla Latte' }];
+  const links = new Map<string, LinkRow>([['d', { menuItemId: 'd', recipeId: 'r1', track: true }], ['e', { menuItemId: 'e', recipeId: null, track: false }], ['f', { menuItemId: 'f', recipeId: null, track: true }]]);
+  const { links: resolved, source } = resolveDrinkRecipes(drinks, links, recipes);
+  assert.deepEqual(Object.fromEntries(resolved), { a: 'r1', b: null, c: null, d: 'r1', e: null, f: 'r1' });
+  assert.deepEqual(Object.fromEntries(source), { a: 'auto', b: 'unmatched', c: 'unmatched', d: 'pinned', e: 'off', f: 'auto' }, 'an unpublished name and an ambiguous name match nothing');
+});
+
+test('usage from logs counts only published recipes and respects each item count time', () => {
   const recipes = new Map<string, RecipeRef>([['r1', { id: 'r1', name: 'PSL', published: latte }], ['r2', { id: 'r2', name: 'Draft', published: null }]]);
   const links = new Map<string, string | null>([['m1', 'r1'], ['m2', 'r2'], ['m3', null]]);
   const logs = [
@@ -59,18 +92,18 @@ test('usage from logs counts only published linked recipes and respects each ite
   assert.equal(all.byItem.get('Pumpkin syrup'), 60);
   assert.equal(all.byItem.has('Hot cups'), true);
 
-  // Beans were recounted between the two orders; milk was never counted, so nothing is deducted from it.
+  // Beans were recounted between the two orders; whole milk was never counted, so nothing is deducted from it.
   const since = usageFromLogs(logs, links, recipes, new Map([['Espresso beans', new Date('2026-10-01T15:30:00Z')], ['Oat milk', new Date('2026-10-01T15:00:00Z')]]));
   assert.equal(since.byItem.get('Espresso beans'), 18);
   assert.equal(since.byItem.has('Oat milk'), false, 'a log recorded exactly at the count time is already in the count');
   assert.equal(since.byItem.has('Whole milk'), false);
 });
 
-test('event plans use each drink default, total demand and round shortfalls up to whole bags', () => {
+test('event plans use each drink default, total demand and buy whole bags of the option to buy', () => {
   const recipes = new Map<string, RecipeRef>([['r1', { id: 'r1', name: 'PSL', published: latte }]]);
-  const stock = new Map<string, StockLine>([
-    ['Espresso beans', { name: 'Espresso beans', unit: 'g', bagSize: 1000, costPerUnit: 0.02, onHand: 1500 }],
-    ['Oat milk', { name: 'Oat milk', unit: 'ml', bagSize: 946, costPerUnit: 0.004, onHand: -100 }],
+  const stock = stockMap([
+    onHand('Espresso beans', 'g', 1500, [option({ supplier: 'Roaster', bagSize: 1000, costPerBag: 20, sealedBags: 1 })]),
+    onHand('Oat milk', 'ml', -100, [option({ supplier: 'Costco', bagSize: 946, costPerBag: 3.97 }), option({ supplier: 'Star', bagSize: 1893, costPerBag: 6, preferred: true })]),
   ]);
   const plan = eventPlan([
     { menuItemId: 'm1', name: 'PSL', defaults: iced, plannedServings: 100 },
@@ -80,9 +113,10 @@ test('event plans use each drink default, total demand and round shortfalls up t
   assert.equal(plan.drinks, 100);
   assert.deepEqual(plan.unlinked, ['Cider']);
   const beans = plan.rows.find(row => row.item === 'Espresso beans')!;
-  assert.deepEqual([beans.needed, beans.short, beans.buyBags], [1800, 300, 1]);
+  assert.deepEqual([beans.needed, beans.short, beans.buyBags, beans.buyLabel], [1800, 300, 1, 'Roaster · 1,000 g']);
+  assert.equal(beans.cost, 1800 * 0.02);
   const oat = plan.rows.find(row => row.item === 'Oat milk')!;
-  assert.deepEqual([oat.needed, oat.short, oat.buyBags], [20000, 20000, 22], 'an overdrawn estimate is treated as empty');
+  assert.deepEqual([oat.needed, oat.short, oat.buyBags, oat.buyLabel], [20000, 20000, 11, 'Star · 1,893 ml'], 'an overdrawn estimate is treated as empty; the preferred option is bought');
   assert.equal(plan.rows.find(row => row.item === 'Whole milk'), undefined);
   assert.deepEqual(plan.missing.map(row => row.item), ['Cold cups', 'Ice', 'Pumpkin syrup'], 'the iced default needs no hot cups');
   assert.equal(demandRows(new Map([['Espresso beans', 10]]), stock)[0].enough, true);
@@ -96,42 +130,74 @@ test('recipe cards report the servings stock supports from lines every drink nee
   assert.equal(check.missing.length, 5);
 });
 
-test('inventory CSV round-trips, accepts old headers and skips bad rows with a reason', () => {
-  const items = [item('Oat milk', { category: 'Milk', bagSize: 946, sealedBags: 8, openBag: 0, par: 6000, costPerUnit: 0.0042, supplier: 'Costco', notes: '32 oz, "barista"' }), item('=cmd', { unit: 'each' })];
+test('drinks left: warn at 20 or fewer, naming every limiting ingredient at its largest per-drink amount', () => {
+  assert.equal(configurationsFor(defaultMenuOptions).length, 2 * 3 * 3 + 2 * 3, 'iced has three ice levels, hot has none');
+  const stock = stockMap([
+    onHand('Espresso beans', 'g', 18 * 300), onHand('Whole milk', 'ml', 200 * 100), onHand('Oat milk', 'ml', 200 * 19 + 150),
+    onHand('Pumpkin syrup', 'ml', 30 * 20), onHand('Ice', 'g', 150 * 500), onHand('Hot cups', 'each', 500), onHand('Cold cups', 'each', 3),
+  ]);
+  const capacity = drinkCapacity(latte, defaultMenuOptions, stock);
+  assert.equal(capacity.drinksLeft, 3);
+  assert.deepEqual(capacity.limits.slice(0, 3).map(limit => [limit.item, limit.drinksLeft, limit.when]), [['Cold cups', 3, 'iced'], ['Oat milk', 19, 'oat'], ['Pumpkin syrup', 20, 'always']], 'syrup is taken at 100%, ice at full');
+
+  const recipes = new Map<string, RecipeRef>([['r1', { id: 'r1', name: 'PSL', published: latte }]]);
+  const drinks = [{ id: 'm1', name: 'PSL', options: defaultMenuOptions }, { id: 'm2', name: 'PSL hot only', options: { ...defaultMenuOptions, temperatures: ['Hot' as const], milks: ['Whole' as const] } }, { id: 'm3', name: 'Unlinked', options: defaultMenuOptions }];
+  const warnings = drinkWarnings(drinks, new Map([['m1', 'r1'], ['m2', 'r1'], ['m3', null]]), recipes, stock);
+  assert.deepEqual(warnings.map(w => [w.name, w.drinksLeft, w.limits.map(l => l.item)]), [['PSL', 3, ['Cold cups', 'Oat milk', 'Pumpkin syrup']], ['PSL hot only', 20, ['Pumpkin syrup']]], 'a hot whole-milk drink is not limited by cold cups or oat milk');
+  assert.equal(DRINKS_LEFT_WARNING, 20);
+  assert.equal(drinkWarnings(drinks, new Map([['m2', 'r1']]), recipes, stock, 19).length, 0, 'exactly 20 left warns only at the default threshold');
+  const out = drinkCapacity(latte, defaultMenuOptions, stockMap([onHand('Espresso beans', 'g', -40)]));
+  assert.equal(out.drinksLeft, 0, 'an overdrawn estimate means none left');
+  assert.equal(out.missing.length, 6);
+});
+
+test('inventory CSV has one row per purchase option, round-trips, and still reads prototype sheets', () => {
+  const milk = item('Whole milk', { category: 'Milk', openAmount: 600, par: 6000, notes: 'gallon jugs, "barista"', packages: [option({ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2 }), option({ supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1 })] });
+  const items = [milk, item('=cmd', { unit: 'each' })];
   const csv = inventoryToCsv(items);
   assert(csv.includes("'=cmd"), 'formula-like text is neutralised for spreadsheets');
+  assert.equal(csv.trim().split('\r\n').length, 4, 'header, two milk options, one item with no options');
   const back = csvToInventory(csv);
   assert.deepEqual(back.errors, []);
   assert.deepEqual(back.items.sort((a, b) => a.name.localeCompare(b.name)), [...items].sort((a, b) => a.name.localeCompare(b.name)));
 
-  const legacy = csvToInventory('Item,Unit,Pack size,Packs,Loose,Qty on hand,Category\nBeans,g,1000,2,250,99999,Coffee\nIce,cups,1,1,1,1,Other\nBeans,g,1,1,1,1,Coffee\nSalt,g,abc,1,1,1,Topping');
-  assert.deepEqual(legacy.items.map(row => [row.name, row.bagSize, row.sealedBags, row.openBag, row.category]), [['Beans', 1000, 2, 250, 'Coffee']]);
-  assert.equal(legacy.errors.length, 3);
+  // A prototype sheet: one row per item, "Cost per unit" instead of "Cost per bag", old pack headers.
+  const legacy = csvToInventory('Item,Unit,Pack size,Packs,Loose,Qty on hand,Category,Cost per unit,Supplier\nBeans,g,1000,2,250,99999,Coffee,0.022,Roaster\nIce,cups,1,1,1,1,Other,0,\nSalt,g,abc,1,1,1,Topping,0,');
+  assert.deepEqual(legacy.items.map(row => [row.name, row.openAmount, row.category, row.packages.map(p => [p.supplier, p.bagSize, p.sealedBags, p.costPerBag])]), [['Beans', 250, 'Coffee', [['Roaster', 1000, 2, 22]]]]);
+  assert.equal(legacy.errors.length, 2);
+  const duplicate = csvToInventory('Item,Unit,Supplier,Bag size\nMilk,ml,Costco,946\nMilk,ml,costco,946\nOat,ml,A,1\nOat,g,B,1');
+  assert.equal(duplicate.items.length, 0, 'a bad row drops its whole ingredient');
+  assert.equal(duplicate.errors.length, 2);
   assert.match(csvToInventory('Name,Unit\nx,g').errors[0], /No "Item" column/);
 });
 
-test('bundles match the prototype exchange format and report every skipped row', () => {
-  const bundle = buildBundle([item('Whole milk')], [{ name: 'Cart', category: 'Furniture', quantity: 1, status: 'ok', location: '', custodian: '', serial: '', notes: '', lastCheckedAt: '' }], [
+test('bundles keep the prototype shape, carry purchase options, and report every skipped row', () => {
+  const milk = item('Whole milk', { openAmount: 500, packages: [option({ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2, preferred: true }), option({ supplier: 'Star', bagSize: 1893, costPerBag: 3.2, sealedBags: 1 })] });
+  const bundle = buildBundle([milk], [{ name: 'Cart', category: 'Furniture', quantity: 1, status: 'ok', location: '', custodian: '', serial: '', notes: '', lastCheckedAt: '' }], [
     { slug: 'psl', published: latte, draft: { ...latte, name: 'PSL v2' } },
     { slug: 'draft-only', published: null, draft: { ...latte, name: 'Draft only' } },
   ], new Date('2026-11-05T00:00:00Z'));
   assert.equal(bundle.format, 'lattelab-data'); assert.equal(bundle.version, 1);
+  const row = bundle.inventory[0];
+  assert.equal(Math.round(row.bagSize * row.sealedBags + row.openBag), countedQuantity(milk), 'the prototype formula still gives the total');
+  assert.deepEqual([row.supplier, row.bagSize, row.costPerBag], ['Costco', 3785, 4.5]);
   assert.deepEqual(bundle.recipes.map(r => [r.slug, r.name, r.status]), [['psl', 'Pumpkin Spice Latte', 'published'], ['draft-only', 'Draft only', 'draft']]);
 
   const read = readBundle(JSON.parse(JSON.stringify(bundle)));
   assert(read.ok);
-  assert.equal(read.inventory[0].name, 'Whole milk');
+  assert.deepEqual(read.inventory[0], milk, 'portal bundles round-trip every purchase option');
   assert.equal(read.recipes[0].body.ingredients[4].scale, 'ice');
 
-  // Prototype rows have no when/scale and use names that need slugging; bad rows are skipped, not fatal.
+  // Prototype rows: one bag size and a per-unit cost become one purchase option with a cost per bag.
   const prototype = readBundle({ format: 'lattelab-data', version: 1, guidelines: [{}, {}],
-    inventory: [{ name: 'Beans', unit: 'g', bagSize: 1000, sealedBags: 1, openBag: 0, par: 0, costPerUnit: 0.02, category: 'Coffee', supplier: '', notes: '' }, { name: 'Pumps', unit: 'pump' }, { unit: 'g' }],
+    inventory: [{ name: 'Beans', unit: 'g', bagSize: 1000, sealedBags: 1, openBag: 40, par: 0, costPerUnit: 0.022, category: 'Coffee', supplier: 'Roaster', notes: '' }, { name: 'Pumps', unit: 'pump' }, { unit: 'g' }],
     recipes: [{ name: 'Vanilla Latte', category: 'Espresso', status: 'published', ingredients: [{ item: 'Beans', qty: 18, unit: 'g', note: '' }], steps: ['Pull'], notes: '' }, { name: 'Empty', ingredients: [] }],
     equipment: [{ name: 'Gaggia', category: 'Machine', quantity: 1, status: 'broken' }],
   });
   assert(prototype.ok);
+  assert.deepEqual(prototype.inventory[0].packages, [{ supplier: 'Roaster', bagSize: 1000, costPerBag: 22, sealedBags: 1, preferred: false }]);
+  assert.equal(prototype.inventory[0].openAmount, 40);
   assert.deepEqual(prototype.recipes.map(r => [r.slug, r.body.ingredients[0].when, r.body.ingredients[0].scale]), [['vanilla-latte', 'always', 'fixed']]);
-  assert.equal(prototype.inventory.length, 1);
   assert.equal(prototype.equipment.length, 0);
   assert.equal(prototype.skipped.length, 4);
   assert.equal(prototype.guidelines, 2);
