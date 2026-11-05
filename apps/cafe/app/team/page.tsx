@@ -35,8 +35,8 @@ export default function Team() {
                       alt={`Portrait of ${person.name}`}
                       fill
                       placeholder="blur"
-                      sizes={`(max-width: 480px) calc(${50 * imageScale}vw - ${47 * imageScale}px), (max-width: 760px) calc(${50 * imageScale}vw - ${56 * imageScale}px), (max-width: 1050px) calc(${33.333 * imageScale}vw - ${80 * imageScale}px), (max-width: 1352px) calc(${33.333 * imageScale}vw - ${96 * imageScale}px), ${356 * imageScale}px`}
-                      loading={i < 3 ? "eager" : "lazy"}
+                      sizes={`(max-width: 480px) calc(${50 * imageScale}vw - ${46.5 * imageScale}px), (max-width: 760px) calc(${50 * imageScale}vw - ${56 * imageScale}px), (max-width: 1023px) calc(${33.333 * imageScale}vw - ${73.333 * imageScale}px), (max-width: 1050px) calc(${25 * imageScale}vw - ${67.5 * imageScale}px), (max-width: 1152px) calc(${25 * imageScale}vw - ${79.5 * imageScale}px), ${208.5 * imageScale}px`}
+                      loading={i < 4 ? "eager" : "lazy"}
                       style={{
                         objectPosition: photo.objectPosition,
                         transform: photo.crop
@@ -59,7 +59,7 @@ export default function Team() {
                         width={160}
                         height={160}
                         sizes="(max-width: 480px) 85px, (max-width: 760px) 100px, 125px"
-                        loading={i < 3 ? "eager" : "lazy"}
+                        loading={i < 4 ? "eager" : "lazy"}
                       />
                     </>
                   )}
@@ -71,8 +71,8 @@ export default function Team() {
                       alt=""
                       width={80}
                       height={80}
-                      sizes="100px"
-                      loading={i < 3 ? "eager" : "lazy"}
+                      sizes="(max-width: 760px) 80px, (max-width: 1023px) 75px, 60px"
+                      loading={i < 4 ? "eager" : "lazy"}
                     />
                   </span>
                 )}

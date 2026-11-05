@@ -695,8 +695,10 @@ h1 em::after {
 }
 .team-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 33px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 1040px;
+  margin-inline: auto;
+  gap: 24px;
   padding: 5px 15px;
 }
 .team-card {
@@ -770,7 +772,7 @@ h1 em::after {
   padding-top: 22px;
 }
 .team-label h2 {
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: -0.035em;
 }
 .team-label p {
@@ -1167,6 +1169,11 @@ h1 em::after {
   }
   .mini-polaroids > a {
     width: 165px;
+  }
+}
+@media (min-width: 1024px) {
+  .team-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (max-width: 1050px) {

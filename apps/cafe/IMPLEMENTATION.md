@@ -196,3 +196,8 @@ User approved merging all preview work to main without squashing and deploying. 
 - content/team-photos.ts owns the portrait mappings and framing settings. content/asset-sources.json records original Drive IDs and filenames.
 - Enlarged the transparent beaver across the photo edge and white card border, outside the clipped portrait frame. Portrait framing remains unchanged.
 - Added Tori Park’s supplied portrait as the 34th team photo. Megan Huang and Michelle Su retain illustrations.
+
+## Compact team layout — 2026-11-05
+
+- Capped the team grid at 1,040px, with four columns from 1,024px, three on smaller tablets, and the existing two-column mobile layout. Reduced desktop gaps to 24px and name text to 22px; laptop and desktop portraits top out around 209px wide while retaining their framing and beaver corners.
+- Updated responsive image sizes for the narrower cards and eager-loaded all four first-row portraits.
