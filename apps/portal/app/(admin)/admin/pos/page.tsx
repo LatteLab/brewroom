@@ -7,7 +7,7 @@ import { DeletePosEvent } from '@/components/pos/delete-event';
 import styles from '@/components/pos/pos.module.css';
 export const dynamic = 'force-dynamic';
 export default async function PosOverviewPage() {
-  const report = await getPosOverview(await requirePosActor(true));
+  const report = await getPosOverview(await requirePosActor());
   return <div className={styles.adminPage}>
     <header className={styles.adminHeader}>
       <div><h1>POS</h1><p>A view across all events, with individual menus and order history below.</p></div>

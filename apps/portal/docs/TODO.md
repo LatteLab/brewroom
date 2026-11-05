@@ -4,8 +4,12 @@
 
 Reviewed October 22, 2026. Both apps are deployed from Brewroom. Portal already contains PostHog analytics and error reporting code; successful telemetry delivery still requires service-level verification.
 
+Source and documentation reviewed October 30, 2026. POS now has domain and disposable PostgreSQL tests, plus local browser verification. These checks do not replace the external-service checks below.
+
 - [ ] Verify real sign-in, profile onboarding, registration, and affected admin flows with development data. Builds and unauthenticated page checks do not establish these outcomes.
 - [ ] Investigate the Resend webhook login redirect. A production GET to `/api/webhooks/resend` redirected to login during the monorepo review. Verify a signed delivery event after addressing routing; no webhook POST or email send was tested in that review.
+- [ ] Add the POS domain tests to CI and provision an isolated PostgreSQL service before adding the destructive fixture suite. CI currently runs Cafe tests only.
+- [ ] Run a team mock event with real admin accounts before using POS at an event. The local test sessions do not verify external sign-in providers.
 
 Use the [Portal setup guide](../README.md) and [deployment guide](../../../docs/deployment.md) for current operations.
 

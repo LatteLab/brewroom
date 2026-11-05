@@ -12,17 +12,18 @@ const testUrl = process.env.POS_TEST_DATABASE_URL;
 if (!testUrl) throw new Error('Set POS_TEST_DATABASE_URL to the disposable loopback lattelab_pos_integration database.');
 const target = new URL(testUrl);
 if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) || target.pathname !== '/lattelab_pos_integration') throw new Error('Integration tests refuse any database except loopback lattelab_pos_integration.');
-process.env.DATABASE_URL = testUrl; process.env.DATABASE_SSL = 'disable'; process.env.POS_STAFF_EMAILS = 'pos-staff@example.invalid';
+process.env.DATABASE_URL = testUrl; process.env.DATABASE_SSL = 'disable';
 const client = postgres(testUrl, { ssl: false, max: 5 });
 let inventory: typeof import('../lib/db/inventory-queries');
 let pos: typeof import('../lib/db/pos-queries');
 let database: typeof import('../lib/db/index');
 const admin = { id: 'pos-test-admin', email: 'pos-admin@example.invalid', isAdmin: true };
-const staff = { id: 'pos-test-staff', email: 'pos-staff@example.invalid', isAdmin: false };
+// POS and inventory are both admin-only; a signed-in member is refused by both.
+const member = { id: 'pos-test-member', email: 'pos-member@example.invalid', isAdmin: false };
 
 before(async () => {
   await client.unsafe('DROP TABLE IF EXISTS inventory_menu_links; DROP TABLE IF EXISTS inventory_items; DROP TABLE IF EXISTS inventory_recipes; DROP TABLE IF EXISTS inventory_equipment; DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
-  await client.unsafe(`CREATE TABLE users (id text PRIMARY KEY, email text UNIQUE); INSERT INTO users VALUES ('pos-test-admin','pos-admin@example.invalid'),('pos-test-staff','pos-staff@example.invalid');`);
+  await client.unsafe(`CREATE TABLE users (id text PRIMARY KEY, email text UNIQUE); INSERT INTO users VALUES ('pos-test-admin','pos-admin@example.invalid'),('pos-test-member','pos-member@example.invalid');`);
   const migrations = (await readdir(new URL('../lib/db/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
   for (const migration of migrations) await client.unsafe(await readFile(new URL(`../lib/db/migrations/${migration}`, import.meta.url), 'utf8'));
   inventory = await import('../lib/db/inventory-queries'); pos = await import('../lib/db/pos-queries'); database = await import('../lib/db/index');
@@ -48,13 +49,13 @@ async function setup() {
   return { beans, oat, whole, recipe, event, drink, body };
 }
 const log = (eventId: string, drink: { id: string; version: number }, milk: 'Whole' | 'Oat', quantity = 1) =>
-  pos.logPosDrinks(staff, { eventId, submissionId: randomUUID(), outsideWindowConfirmed: true, lines: [{ menuItemId: drink.id, menuVersion: drink.version, configuration: { temperature: 'Hot', milk, syrup: 100 }, quantity }] });
+  pos.logPosDrinks(admin, { eventId, submissionId: randomUUID(), outsideWindowConfirmed: true, lines: [{ menuItemId: drink.id, menuVersion: drink.version, configuration: { temperature: 'Hot', milk, syrup: 100 }, quantity }] });
 const stockOf = async (name: string) => (await inventory.getInventoryStock(admin)).find(item => item.name === name)!;
 
 test('inventory is admin-only and links accept only published recipes on that event’s menu', async () => {
   const { recipe, event, drink } = await setup(); const other = await setup();
-  await assert.rejects(inventory.getInventoryStock(staff), /Administrator/);
-  await assert.rejects(inventory.saveMenuLink(staff, { eventId: event.id, menuItemId: drink.id, recipeId: recipe.id, plannedServings: 1 }), /Administrator/);
+  await assert.rejects(inventory.getInventoryStock(member), /Administrator/);
+  await assert.rejects(inventory.saveMenuLink(member, { eventId: event.id, menuItemId: drink.id, recipeId: recipe.id, plannedServings: 1 }), /Administrator/);
   await assert.rejects(inventory.saveMenuLink(admin, { eventId: other.event.id, menuItemId: drink.id, recipeId: recipe.id, plannedServings: 1 }), /not on this event/);
   const draft = await inventory.createRecipe(admin, { name: 'Unpublished idea' });
   await assert.rejects(inventory.saveMenuLink(admin, { eventId: event.id, menuItemId: drink.id, recipeId: draft.id, plannedServings: 1 }), /Only published/);
@@ -73,10 +74,10 @@ test('POS logs, voids and corrections flow into stock estimates; a recount reset
   const [second] = await log(event.id, drink, 'Whole', 2);
   assert.deepEqual([(await stockOf(beans.name)).onHand, (await stockOf(oat.name)).usedSinceCount, (await stockOf(whole.name)).usedSinceCount], [2000 - 54, 200, 400]);
 
-  await pos.correctPosDrinkLog(staff, { logId: second.id, mutationId: randomUUID(), configuration: { temperature: 'Hot', milk: 'Oat', syrup: 100 }, quantity: 1, kerb: null, reason: 'Wrong milk' });
+  await pos.correctPosDrinkLog(admin, { logId: second.id, mutationId: randomUUID(), configuration: { temperature: 'Hot', milk: 'Oat', syrup: 100 }, quantity: 1, kerb: null, reason: 'Wrong milk' });
   assert.deepEqual([(await stockOf(beans.name)).usedSinceCount, (await stockOf(oat.name)).usedSinceCount, (await stockOf(whole.name)).usedSinceCount], [36, 400, 0]);
   const [current] = (await pos.getPosLogs(admin, event.id)).filter(entry => entry.replacesLogId === second.id);
-  await pos.voidPosDrinkLog(staff, { logId: current.id, reason: 'Accidental entry removed' });
+  await pos.voidPosDrinkLog(admin, { logId: current.id, reason: 'Accidental entry removed' });
   assert.equal((await stockOf(beans.name)).usedSinceCount, 18);
 
   const counted = await stockOf(beans.name);
@@ -153,5 +154,5 @@ test('bundle import merges by name and slug, keeps the draft/published split and
   assert.equal((await stockOf(`Cocoa ${s}`)).counted, 2020);
   assert(await stockOf(keep.name), 'records absent from the file are left alone');
   await assert.rejects(inventory.importBundle(admin, { format: 'lattelab-data', version: 1, inventory: [{ name: 'x', unit: 'pump' }] }), /Nothing importable/);
-  await assert.rejects(inventory.importBundle(staff, file), /Administrator/);
+  await assert.rejects(inventory.importBundle(member, file), /Administrator/);
 });

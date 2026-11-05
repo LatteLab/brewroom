@@ -11,5 +11,5 @@ export default async function KioskPage({ params }: { params: Promise<{ eventId:
   const { eventId } = await params; if (!z.uuid().safeParse(eventId).success) notFound();
   const event = await getPosEvent(actor, eventId); if (!event) notFound();
   const [menu, logs] = await Promise.all([getPosMenu(actor, eventId), getPosLogs(actor, eventId, true)]);
-  return <Kiosk initialSubmissionId={crypto.randomUUID()} event={event} menu={menu} logs={logs} actorId={actor.id} isAdmin={actor.isAdmin} />;
+  return <Kiosk initialSubmissionId={crypto.randomUUID()} event={event} menu={menu} logs={logs} />;
 }

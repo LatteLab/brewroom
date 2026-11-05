@@ -6,13 +6,14 @@ See the [implementation plan](implementation-plan.md) for delivery steps and the
 
 ## Purpose
 
-Staff record an order as it is received, then review drink totals and order activity for that event. Staff also create events and edit menus through the portal, without changing source code.
+Admins record an order as it is received, then review drink totals and order activity for that event. They also create events and edit menus through the portal, without changing source code.
 
 This version excludes inventory, payments, pre-orders, customer accounts, registration, lotteries, preparation tracking, and handoff tracking. Inventory can attach recipes to stable menu items later. It does not need tables or ingredient quantities now.
 
 ## Accepted requirements
 
 - An event has a name and a start and end date/time window.
+- Every POS page, query, action, and export requires an admin. There is no non-admin cashier role or email allowlist.
 - Eastern time is the default. Use `America/New_York` for entry and display, with no timezone picker initially.
 - Events have no stored draft, live, or closed status. Date filters derive from the time window.
 - `recorded_at` is the only order-time metric. It means when staff first record an order as received.
@@ -28,7 +29,7 @@ This version excludes inventory, payments, pre-orders, customer accounts, regist
 - Reports show event drink totals, configuration breakdowns, and time spikes in recorded order activity, plus an overall POS overview across all events.
 - Admins can permanently delete a POS event after typing its current name. This deletes its menu and all order history and removes its counts from analytics.
 
-The technical choices below describe the feature implementation. They do not establish a production deployment.
+The technical choices below describe the current feature contract. Release and verification history belongs in the implementation plan. A merged change does not establish that its production UI was tested.
 
 ## Existing system and feature boundary
 
@@ -36,13 +37,11 @@ The current [event schema](../../../lib/db/schema.ts) requires capacity and incl
 
 Reuse portal authentication, Zod validation, and the existing Drizzle/Postgres connection. Keep the feature in `apps/portal` and its current deployment. The public Cafe app does not need internal drink records.
 
-At planning time, main did not contain `/kiosk` and the earlier temporary prototype was unavailable. The feature rebuilds its approved full-screen behavior and connects it to authenticated server/database operations.
-
 ## Three tables
 
 Use `pos_events`, `pos_event_menu_items`, and `pos_drink_logs` while the old registration system remains. The prefix prevents a naming collision, not a permanent domain requirement.
 
-| Table | Proposed fields |
+| Table | Fields |
 | --- | --- |
 | `pos_events` | UUID `id`, `name`, `starts_at`, `ends_at`, creator, creation/update timestamps |
 | `pos_event_menu_items` | UUID `id`, `event_id`, `name`, JSONB option definitions/defaults, `available`, nullable `archived_at`, `sort_order`, `version` |
@@ -94,11 +93,11 @@ Server actions authenticate, validate client input, check permissions, invoke qu
 
 Operations are event creation/update/deletion, menu saving, drink logging, void/correction, and overview/analytics/export reads. Keep them in `app/actions/pos.ts`, `lib/db/pos-queries.ts`, and `lib/validations/pos.ts`. Do not add an API app, event bus, or pass-through service layer.
 
-Admins manage event setup and reports. Only explicitly eligible POS staff can log drinks and use the permitted recent-log controls. Membership alone does not grant access. Set the server-only comma-separated `POS_STAFF_EMAILS` allowlist for cashier access; admins retain access. Check eligibility on every server entry point. Staff can view and correct only their own logs. Do not grant blanket admin access to cashiers.
+All POS operations require the existing Portal admin permission. Membership alone does not grant access. Check the admin permission on every page, query, action, and export. Admins can log orders and inspect, remove, or correct entries from any admin. No environment variable grants non-admin access.
 
 ## Staff interface and reports
 
-Proposed portal routes are `/admin/pos`, `/admin/pos/new`, and `/admin/pos/[eventId]`. The event page contains setup, menu, recent logs, and analytics. `/kiosk` selects a permitted event; `/kiosk/[eventId]` keeps order entry full-screen.
+Portal routes are `/admin/pos`, `/admin/pos/new`, and `/admin/pos/[eventId]`. The event page contains setup, menu, recent logs, and analytics. `/kiosk` is the admin-only event chooser; `/kiosk/[eventId]` keeps order entry full-screen.
 
 Staff can rename drinks, choose supported options/defaults, reorder items, and mark items unavailable within an event. Drag handles set kiosk order and save automatically; focused handles also support up and down arrow keys. Numeric positions are internal, and new drinks append to the menu. Reordering checks the complete event menu and its previous order under the event lock, so a stale editor cannot overwrite a newer order. It does not change drink configuration versions. Copying menus between events is out of scope. The kiosk shows the selected configuration directly in its summary; Log drink saves it without an add-to-order step. Disable repeat clicks while a save is pending, but rely on database uniqueness for retry protection.
 
@@ -132,11 +131,13 @@ Rename the three tables to `events`, `event_menu_items`, and `drink_logs` only i
 
 Verify Eastern date conversion, option validation, retry payload matching, simultaneous operators, stale menus, correction races, preserved timestamps, and matching report/CSV totals. Check logger and admin screens on phone and tablet.
 
-Before deployment, configure real staff eligibility and verify the browser flows against the intended development target. Recipe quantities, event-registration retirement, deployment, and offline order queues remain outside this implementation request.
+Before event use, run a mock event with real admin accounts and verify the intended database target. Recipe quantities, event-registration retirement, and offline order queues remain separate work.
 
 
 ## Local verification record
 
 The implementation uses an additive SQL migration, RLS with no direct anonymous/authenticated grants, and an explicit loopback-only SSL override for disposable development databases. The existing registration tables and flows remain intact.
 
-`pnpm --filter @lattelab/portal test:pos` passes eight domain tests. `POS_TEST_DATABASE_URL` plus `pnpm --filter @lattelab/portal test:pos:db` passes twelve tests against real disposable PostgreSQL. These include single-drink validation, empty menus, overview reconciliation, deletion authorization and retries, correction chains, and deletion racing with logging/corrections/voids. Browser checks covered direct single-drink logging, one-click removal, name-confirmed deletion of a disposable local event, matching overview totals, and phone/tablet layouts without horizontal overflow. No migration is required for this follow-up, and no production records were modified during verification. Deployment monitoring was excluded at the user's request.
+The current suites contain eight domain tests and 17 real PostgreSQL tests. They cover admin-only access across all POS queries and mutations, single-drink validation, empty menus, archival, redaction, overview reconciliation, deletion, correction history, retry identity, and mutation races. Run the commands in the [Portal setup guide](../../../README.md) for a new verification result.
+
+The [implementation plan](implementation-plan.md) records dated browser and release checks. The initial POS tables, archive column, and removed-log kerb cleanup were applied to production on October 29, 2026. See [database migrations](../../database-migrations.md) for exact files and target history. Production deployment monitoring was excluded from the later follow-ups; do not infer a fresh production UI check from their merge status.

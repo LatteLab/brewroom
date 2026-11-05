@@ -67,7 +67,7 @@ The event page lists the POS menu live (archived drinks remain only if they have
 
 ## Access
 
-Admin only, the same audience as POS setup and reports. Every query function, server action and the export route checks it. POS cashiers (`POS_STAFF_EMAILS`) get no inventory access.
+Admin only, the same audience as POS, which is itself admin-only. Every query function, server action and the export route checks it.
 
 ## Exchange format
 
@@ -75,7 +75,7 @@ Import and export use the prototype's `lattelab-data` version 1 bundle and its i
 
 ## Assumptions to confirm
 
-1. **Admin-only.** Counting is often done by baristas at the cart; widening counts to POS staff is a small follow-up if wanted.
+1. **Admin-only.** Counting is often done by baristas at the cart; letting non-admin members record counts would be a separate access decision.
 2. **Ice factors** none/light/full = 0 / 0.5 / 1 of the recipe's ice amount, and syrup scales linearly with 50/75/100%.
 3. **Plans use menu defaults.** An alternative is planning from the historical configuration mix.
 4. **Usage uses the current published recipe**, as in the prototype, not the version in force when each drink was logged. Publishing a change re-estimates drinks logged since each item's last count. Recount after an event to lock in reality.

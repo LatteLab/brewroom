@@ -15,22 +15,22 @@ function failure(error: unknown) {
 }
 function refresh(eventId: string) { revalidatePath('/admin/pos'); revalidatePath(`/admin/pos/${eventId}`); revalidatePath('/kiosk'); revalidatePath(`/kiosk/${eventId}`); }
 export async function createPosEventAction(input: unknown) {
-  try { const event = await createPosEvent(await requirePosActor(true), input); refresh(event.id); return { ok: true as const, event }; } catch (error) { return failure(error); }
+  try { const event = await createPosEvent(await requirePosActor(), input); refresh(event.id); return { ok: true as const, event }; } catch (error) { return failure(error); }
 }
 export async function deletePosEventAction(input: unknown) {
-  try { const eventId = await deletePosEvent(await requirePosActor(true), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
+  try { const eventId = await deletePosEvent(await requirePosActor(), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
 }
 export async function updatePosEventAction(eventId: string, input: unknown) {
-  try { const event = await updatePosEvent(await requirePosActor(true), eventId, input); refresh(event.id); return { ok: true as const, event }; } catch (error) { return failure(error); }
+  try { const event = await updatePosEvent(await requirePosActor(), eventId, input); refresh(event.id); return { ok: true as const, event }; } catch (error) { return failure(error); }
 }
 export async function savePosMenuItemAction(input: unknown) {
-  try { const item = await savePosMenuItem(await requirePosActor(true), input); refresh(item.eventId); return { ok: true as const, item }; } catch (error) { return failure(error); }
+  try { const item = await savePosMenuItem(await requirePosActor(), input); refresh(item.eventId); return { ok: true as const, item }; } catch (error) { return failure(error); }
 }
 export async function reorderPosMenuAction(input: unknown) {
-  try { const eventId = await reorderPosMenu(await requirePosActor(true), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
+  try { const eventId = await reorderPosMenu(await requirePosActor(), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
 }
 export async function removePosMenuItemAction(input: unknown) {
-  try { const eventId = await removePosMenuItem(await requirePosActor(true), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
+  try { const eventId = await removePosMenuItem(await requirePosActor(), input); refresh(eventId); return { ok: true as const }; } catch (error) { return failure(error); }
 }
 export async function logDrinksAction(input: unknown) {
   try { const actor = await requirePosActor(); const logs = await logPosDrinks(actor, singleDrinkInputSchema.parse(input)); if (logs[0]) refresh(logs[0].eventId); return { ok: true as const, logs }; } catch (error) { return failure(error); }

@@ -23,7 +23,7 @@ Keep the homepage short. Warm cream, forest green, espresso typography, original
 
 ## Verification and release
 
-From this app directory run pnpm test, pnpm lint, pnpm typecheck, pnpm build. Check mobile navigation, gallery filters/load-more/dialog, and page widths in a browser. The user approved production deployment on September 16, 2026 after local preview. AWS apex DNS was previously pointed at CloudFront and must be separately verified before any domain cutover.
+From the repository root run `pnpm --filter @lattelab/cafe test`, `pnpm --filter @lattelab/cafe lint`, `pnpm --filter @lattelab/cafe typecheck`, and `pnpm --filter @lattelab/cafe build`. Check mobile navigation, gallery filters, load-more, dialog behavior, and page widths in a browser. Follow the current request's release scope and the [deployment guide](../../docs/deployment.md). Earlier deployment approvals and DNS observations are historical records, not approval for a new release.
 
 ## Signature footer
 

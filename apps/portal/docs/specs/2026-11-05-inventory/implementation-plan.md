@@ -26,7 +26,7 @@ Date: November 5, 2026. Implements the [design](design.md). Paths are relative t
 
 ## Release steps (not done)
 
-1. Review and apply `lib/db/migrations/20261105120000_inventory.sql` to the target through the team's database change process, after the three POS migrations. It only creates tables.
+1. Review and apply `lib/db/migrations/20261105120000_inventory.sql` to the target following [database migrations](../../database-migrations.md), after the three POS migrations. It only creates tables.
 2. Export the live prototype's data (Import / export → Export data in the artifact) and import it on the portal's Import / export page.
 3. Review imported recipes' milk, cup, syrup and ice lines, then publish them.
 4. Link each POS event's drinks to recipes and record a fresh count before the next event.
