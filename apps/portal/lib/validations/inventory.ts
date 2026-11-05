@@ -114,19 +114,21 @@ export const bundleEnvelopeSchema = z.object({
   recipes: z.array(z.unknown()).optional(),
   guidelines: z.array(z.unknown()).optional(),
 });
+const numberLike = z.preprocess(value => (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : value), amount);
 // Prototype rows carry one bag size, sealed count and per-unit cost. Portal exports add `costPerBag` and `packages`.
 export const bundleItemSchema = z.object({
   name: text(160).min(1, 'no name'),
   category: z.enum(itemCategories).catch('Other'),
   unit: z.enum(units, 'unit is not ml, g or each'),
-  bagSize: amount.catch(0), sealedBags: amount.catch(0), openBag: amount.catch(0), par: amount.catch(0), costPerUnit: amount.catch(0),
-  costPerBag: amount.optional(),
+  // Hand-written files often quote numbers. A value that is not a number is reported and the row skipped, never zeroed.
+  bagSize: numberLike.optional(), sealedBags: numberLike.optional(), openBag: numberLike.optional(), par: numberLike.optional(), costPerUnit: numberLike.optional(),
+  costPerBag: numberLike.optional(),
   supplier: text(160).catch(''),
   notes: text(1000).catch(''),
   packages: z.array(packageFieldsSchema.omit({ id: true }).strip()).max(20).optional(),
 }).strip();
 export const bundleEquipmentSchema = equipmentFieldsSchema.extend({
-  quantity: z.number().int().min(0).max(10_000).catch(0),
+  quantity: z.preprocess(value => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value), z.number().int().min(0).max(10_000)).default(0),
   status: z.enum(equipmentStatuses).default('ok'),
 }).strip();
 export const bundleRecipeSchema = z.object({
@@ -138,7 +140,7 @@ export const bundleRecipeSchema = z.object({
   steps: z.array(text(1000)).max(60).default([]),
   notes: text(4000).default(''),
 }).strip();
-// Server actions accept Next's default 1 MB request body, so files are limited below that.
+// Server actions accept Next's default 1 MB request body, so files are limited below that (in bytes on the client).
 export const IMPORT_MAX_CHARS = 900_000;
 export const importBundleSchema = z.object({ text: z.string().max(IMPORT_MAX_CHARS, 'That file is too large to import.') }).strict();
 export const importCsvSchema = z.object({ text: z.string().max(IMPORT_MAX_CHARS, 'That file is too large to import.') }).strict();

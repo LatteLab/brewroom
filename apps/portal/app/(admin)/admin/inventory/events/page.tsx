@@ -14,7 +14,7 @@ export default async function InventoryEventsPage() {
       <div className={posStyles.eventInfo}>
         <h3><Link href={`/admin/inventory/events/${event.id}`}>{event.name}</Link></h3>
         <p>{formatPosDate(event.startsAt)} – {formatPosDate(event.endsAt)}</p>
-        <p className={posStyles.eventCounts}><strong>{event.linked}</strong> of <strong>{event.drinks}</strong> drinks linked to a recipe · <strong>{event.planned.toLocaleString()}</strong> servings planned</p>
+        <p className={posStyles.eventCounts}><strong>{event.linked}</strong> of <strong>{event.drinks}</strong> drinks tracked by a published recipe · <strong>{event.planned.toLocaleString()}</strong> servings planned</p>
       </div>
       <div className={posStyles.actions}><Link href={`/admin/inventory/events/${event.id}`} className={posStyles.primary}>Plan inventory</Link><Link href={`/admin/pos/${event.id}`} className={posStyles.secondary}>POS event</Link></div>
     </article>) : <p className={posStyles.empty}>No POS events yet. Create one in the POS tab and add its drinks; it appears here automatically.</p>}</div>

@@ -13,7 +13,7 @@ export function DrinkWarnings({ warnings, compact = false }: { warnings: (DrinkW
     <h2><AlertTriangle size={compact ? 22 : 28} aria-hidden="true" />{warnings.length === 1 ? `${warnings[0].name} is running low` : `${warnings.length} drinks are running low`}</h2>
     <ul>{warnings.map(warning => <li key={warning.menuItemId}>
       {(warnings.length > 1 || warning.eventName) && <strong>{warnings.length > 1 ? warning.name : null}{warning.eventName ? <span>{warnings.length > 1 ? ' · ' : ''}{warning.eventName}</span> : null}</strong>}
-      {warning.groups.map(group => <span key={group.label}>{group.drinksLeft === 0 ? `None left${group.label ? ` ${group.label.endsWith('milk') ? 'with ' : ''}${group.label}` : ''}` : `About ${capacityPhrase(group, ' left')}`} — {group.limits.map(limitPhrase).join(', ')}</span>)}
+      {warning.groups.map(group => <span key={group.label}>{group.drinksLeft === 0 ? `None left${group.label ? ` (${group.label})` : ''}` : `About ${capacityPhrase(group, ' left')}`} — {group.limits.map(limitPhrase).join(', ')}</span>)}
     </li>)}</ul>
   </section>;
 }

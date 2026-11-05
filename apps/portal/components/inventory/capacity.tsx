@@ -10,10 +10,14 @@ export function limitPhrase(limit: CapacityGroup['limits'][number]) { return `${
 
 /** How many more of a drink stock makes, by the choices that matter, with what runs out first. */
 export function CapacitySummary({ capacity, compact = false, stacked = false }: { capacity: DrinkCapacity | null; compact?: boolean; stacked?: boolean }) {
-  if (!capacity || capacity.drinksLeft === null) return <span className={styles.sub}>Not tracked</span>;
+  if (!capacity) return <span className={styles.sub}>Not tracked</span>;
+  // An ingredient missing from inventory cannot be counted, so the figure is an upper bound. Always say so.
+  const missing = capacity.missing.length ? `${capacity.missing.join(', ')} not in inventory, so not counted` : '';
+  if (capacity.drinksLeft === null) return <span className={styles.sub}>{missing || 'Not tracked'}</span>;
   const first = capacity.groups[0];
   return <span>
     {stacked ? capacity.groups.map(group => <strong key={group.label} style={{ display: 'block' }}>{capacityPhrase(group)}</strong>) : <strong>{capacity.groups.map(group => capacityPhrase(group)).join(' · ')}</strong>}
-    {!compact && first.limits[0] && <span className={styles.sub}>{first.limits[0].item} runs out first{capacity.missing.length ? ` · ${capacity.missing.length} not in inventory` : ''}</span>}
+    {!compact && first.limits[0] && <span className={styles.sub}>{first.limits[0].item} runs out first</span>}
+    {missing && <span className={styles.sub}>{missing}</span>}
   </span>;
 }

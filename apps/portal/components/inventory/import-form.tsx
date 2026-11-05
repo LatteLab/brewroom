@@ -15,7 +15,8 @@ export function ImportForm({ kind }: { kind: 'bundle' | 'csv' }) {
   const [pending, startTransition] = useTransition();
   const id = `import-${kind}`;
   return <form onSubmit={e => { e.preventDefault(); setError(''); setSummary(null);
-    if (text.length > IMPORT_MAX_CHARS) { setError('That file is too large to import in one go (about 900 KB). Split it and import each part; nothing is deleted between imports.'); return; }
+    // The server limit is in bytes, and accented or curly characters take more than one.
+    if (new TextEncoder().encode(text).length > IMPORT_MAX_CHARS) { setError('That file is too large to import in one go (about 900 KB). Split it and import each part; nothing is deleted between imports.'); return; }
     startTransition(async () => {
     try {
       if (kind === 'bundle') {

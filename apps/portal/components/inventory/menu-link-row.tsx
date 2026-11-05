@@ -17,7 +17,11 @@ export function MenuLinkRow({ eventId, drink, recipes }: { eventId: string; drin
   const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [pending, startTransition] = useTransition();
   const pinnedMissing = drink.source === 'pinned' && !recipes.some(recipe => recipe.id === drink.pinnedRecipeId);
   const dirty = choice !== choiceFor(drink) || planned !== drink.plannedServings;
-  const status = drink.source === 'off' ? 'Not tracked' : drink.recipeInUse ? `Using “${drink.recipeInUse}”` : drink.source === 'pinned' ? 'Pinned recipe is not published' : 'No published recipe with this name';
+  const status = drink.source === 'off' ? 'Not tracked'
+    : drink.recipeInUse ? `Using “${drink.recipeInUse}”`
+      : drink.source === 'pinned' ? 'Pinned recipe is not published, so nothing is deducted'
+        : drink.source === 'ambiguous' ? 'Two published recipes have this name. Pick one.'
+          : 'No published recipe with this name';
   return <tr>
     <td>{drink.name}{(drink.archivedAt || !drink.available) && <span className={styles.sub}>{drink.archivedAt ? 'Removed from the menu' : 'Unavailable'}</span>}</td>
     <td data-label="Recipe"><div><select aria-label={`Recipe for ${drink.name}`} value={choice} disabled={pending} onChange={e => setChoice(e.target.value)}>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  DRINKS_LEFT_WARNING, buildBundle, configurationsFor, countedQuantity, csvToInventory, demandRows, drinkCapacity, drinkCostRange, drinkWarnings, eventPlan, ingredientAmount,
+  ALL_FIELDS, DRINKS_LEFT_WARNING, buildBundle, configurationsFor, countedQuantity, csvToInventory, demandRows, drinkCapacity, drinkCostRange, drinkWarnings, eventPlan, ingredientAmount,
   inventoryToCsv, readBundle, reorderOption, resolveDrinkRecipes, slugify, stockMap, stockStatus, unitCost, usageFromLogs,
   type LinkRow, type RecipeRef,
 } from '../lib/inventory';
@@ -71,7 +71,13 @@ test('POS drinks use the published recipe with their name unless pinned or turne
   const links = new Map<string, LinkRow>([['d', { menuItemId: 'd', recipeId: 'r1', track: true }], ['e', { menuItemId: 'e', recipeId: null, track: false }], ['f', { menuItemId: 'f', recipeId: null, track: true }]]);
   const { links: resolved, source } = resolveDrinkRecipes(drinks, links, recipes);
   assert.deepEqual(Object.fromEntries(resolved), { a: 'r1', b: null, c: null, d: 'r1', e: null, f: 'r1' });
-  assert.deepEqual(Object.fromEntries(source), { a: 'auto', b: 'unmatched', c: 'unmatched', d: 'pinned', e: 'off', f: 'auto' }, 'an unpublished name and an ambiguous name match nothing');
+  assert.deepEqual(Object.fromEntries(source), { a: 'auto', b: 'unmatched', c: 'ambiguous', d: 'pinned', e: 'off', f: 'auto' }, 'an unpublished name matches nothing; a name two recipes share is reported as ambiguous');
+
+  // Names in any script stay distinct, accents and punctuation are ignored, and an empty name matches nothing.
+  const named = (id: string, name: string) => [id, { id, name, published: { ...latte, name } }] as const;
+  const world = new Map<string, RecipeRef>([named('matcha', '抹茶ラテ'), named('cafe', 'Café Latte'), named('blank', '   ')]);
+  const matched = resolveDrinkRecipes([{ id: 'x', name: 'ほうじ茶ラテ' }, { id: 'y', name: '☕' }, { id: 'z', name: 'cafe-latte' }, { id: 'w', name: '抹茶 ラテ' }], new Map(), world).links;
+  assert.deepEqual(Object.fromEntries(matched), { x: null, y: null, z: 'cafe', w: 'matcha' });
 });
 
 test('usage from logs counts only published recipes and respects each item count time', () => {
@@ -120,6 +126,13 @@ test('event plans use each drink default, total demand and buy whole bags of the
   assert.equal(plan.rows.find(row => row.item === 'Whole milk'), undefined);
   assert.deepEqual(plan.missing.map(row => row.item), ['Cold cups', 'Ice', 'Pumpkin syrup'], 'the iced default needs no hot cups');
   assert.equal(demandRows(new Map([['Espresso beans', 10]]), stock)[0].enough, true);
+
+  // Drinks already logged have come off on hand, so only the drinks still to serve are needed.
+  const milkOnly: RecipeBody = { ...latte, ingredients: [latte.ingredients[1]] };
+  const served = eventPlan([{ menuItemId: 'm1', name: 'Latte', defaults: hot, plannedServings: 100, logged: 60 }], new Map([['m1', 'r1']]),
+    new Map([['r1', { id: 'r1', name: 'Latte', published: milkOnly }]]), stockMap([onHand('Whole milk', 'ml', 8000, [option({ bagSize: 3785 })])]));
+  assert.deepEqual([served.drinks, served.rows[0].needed, served.rows[0].enough, served.rows[0].buyBags], [40, 8000, true, 0]);
+  assert.equal(eventPlan([{ menuItemId: 'm1', name: 'Latte', defaults: hot, plannedServings: 10, logged: 12 }], new Map([['m1', 'r1']]), new Map([['r1', { id: 'r1', name: 'Latte', published: milkOnly }]]), stockMap([])).drinks, 0);
 });
 
 test('drinks you can make are reported by the choices that matter, with what runs out first', () => {
@@ -166,23 +179,28 @@ test('warnings flag each drink type at 20 or fewer, with every ingredient at or 
 });
 
 test('inventory CSV has one row per purchase option, round-trips, and still reads prototype sheets', () => {
-  const milk = item('Whole milk', { category: 'Milk', openAmount: 600, par: 6000, notes: 'gallon jugs, "barista"', packages: [option({ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2 }), option({ supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1 })] });
+  const milk = item('Whole milk', { category: 'Milk', openAmount: 600, par: 6000, notes: 'gallon jugs, "barista"', packages: [option({ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2 }), option({ supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1, preferred: true })] });
   const items = [milk, item('=cmd', { unit: 'each' })];
   const csv = inventoryToCsv(items);
   assert(csv.includes("'=cmd"), 'formula-like text is neutralised for spreadsheets');
   assert.equal(csv.trim().split('\r\n').length, 4, 'header, two milk options, one item with no options');
   const back = csvToInventory(csv);
   assert.deepEqual(back.errors, []);
-  assert.deepEqual(back.items.sort((a, b) => a.name.localeCompare(b.name)), [...items].sort((a, b) => a.name.localeCompare(b.name)));
+  assert.deepEqual(back.items.sort((a, b) => a.name.localeCompare(b.name)), items.map(i => ({ ...i, provided: ALL_FIELDS })).sort((a, b) => a.name.localeCompare(b.name)), 'an exported sheet has every column');
 
   // A prototype sheet: one row per item, "Cost per unit" instead of "Cost per bag", old pack headers.
   const legacy = csvToInventory('Item,Unit,Pack size,Packs,Loose,Qty on hand,Category,Cost per unit,Supplier\nBeans,g,1000,2,250,99999,Coffee,0.022,Roaster\nIce,cups,1,1,1,1,Other,0,\nSalt,g,abc,1,1,1,Topping,0,');
   assert.deepEqual(legacy.items.map(row => [row.name, row.openAmount, row.category, row.packages.map(p => [p.supplier, p.bagSize, p.sealedBags, p.costPerBag])]), [['Beans', 250, 'Coffee', [['Roaster', 1000, 2, 22]]]]);
   assert.equal(legacy.errors.length, 2);
-  const duplicate = csvToInventory('Item,Unit,Supplier,Bag size\nMilk,ml,Costco,946\nMilk,ml,costco,946\nOat,ml,A,1\nOat,g,B,1');
+  const duplicate = csvToInventory('Item,Unit,Supplier,Bag size,Preferred\nMilk,ml,Costco,946,\nMilk,ml,costco,946,\nOat,ml,A,1,\nOat,g,B,1,\nSoy,ml,A,1,yes\nSoy,ml,B,2,yes');
   assert.equal(duplicate.items.length, 0, 'a bad row drops its whole ingredient');
-  assert.equal(duplicate.errors.length, 2);
+  assert.equal(duplicate.errors.length, 3, 'duplicate option, mixed units, two preferred');
   assert.match(csvToInventory('Name,Unit\nx,g').errors[0], /No "Item" column/);
+
+  // A count sheet with only some columns says so, so the merge leaves the other fields alone.
+  const counts = csvToInventory('Item,Supplier,Bag size,Sealed bags\nWhole milk,Costco,3785,3');
+  assert.deepEqual(counts.items[0].provided, { category: false, unit: false, openAmount: false, par: false, notes: false, sealedBags: true, costPerBag: false, preferred: false });
+  assert.deepEqual(csvToInventory(inventoryToCsv(items)).items[0].provided, { category: true, unit: true, openAmount: true, par: true, notes: true, sealedBags: true, costPerBag: true, preferred: true });
 });
 
 test('bundles keep the prototype shape, carry purchase options, and report every skipped row', () => {
@@ -199,7 +217,7 @@ test('bundles keep the prototype shape, carry purchase options, and report every
 
   const read = readBundle(JSON.parse(JSON.stringify(bundle)));
   assert(read.ok);
-  assert.deepEqual(read.inventory[0], milk, 'portal bundles round-trip every purchase option');
+  assert.deepEqual(read.inventory[0], { ...milk, provided: ALL_FIELDS }, 'portal bundles round-trip every purchase option and every field');
   assert.equal(read.recipes[0].body.ingredients[4].scale, 'ice');
 
   // Prototype rows: one bag size and a per-unit cost become one purchase option with a cost per bag.
@@ -215,6 +233,13 @@ test('bundles keep the prototype shape, carry purchase options, and report every
   assert.equal(prototype.equipment.length, 0);
   assert.equal(prototype.skipped.length, 4);
   assert.equal(prototype.guidelines, 2);
+
+  // Quoted numbers are read; anything that is not a number is reported, never silently zeroed.
+  const quoted = readBundle({ format: 'lattelab-data', version: 1, inventory: [{ name: 'Beans', unit: 'g', bagSize: '1000', sealedBags: '3', openBag: 200 }, { name: 'Salt', unit: 'g', bagSize: 'lots', sealedBags: 1 }] });
+  assert(quoted.ok);
+  assert.deepEqual(quoted.inventory.map(i => [i.name, i.packages.map(p => [p.bagSize, p.sealedBags]), i.openAmount]), [['Beans', [[1000, 3]], 200]]);
+  assert.equal(quoted.skipped.length, 1);
+  assert.deepEqual([quoted.inventory[0].provided.par, quoted.inventory[0].provided.sealedBags, quoted.inventory[0].provided.costPerBag], [false, true, false], 'keys absent from the row are not written on merge');
 
   assert.deepEqual(readBundle({ format: 'other' }), { ok: false, error: 'Expected a "lattelab-data" file, got "other".' });
   assert.equal(readBundle({ format: 'lattelab-data', version: 2 }).ok, false);

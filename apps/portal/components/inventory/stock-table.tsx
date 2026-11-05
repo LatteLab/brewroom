@@ -21,14 +21,18 @@ function CountRow({ item }: { item: StockRow }) {
   const [message, setMessage] = useState(''); const [pending, startTransition] = useTransition();
   const draft = { openAmount, packages: item.packages.map(option => ({ bagSize: option.bagSize, sealedBags: sealed[option.id] ?? option.sealedBags })) };
   const changed = openAmount !== item.openAmount || item.packages.some(option => sealed[option.id] !== option.sealedBags);
-  const save = () => startTransition(async () => {
+  const save = () => {
+    // Unchanged numbers after drinks were logged would wipe that usage. Allow it, because a recount can match, but ask.
+    if (!changed && item.usedSinceCount > 0 && !window.confirm(`These are the numbers from the last count, and ${fmtQty(item.usedSinceCount)} ${item.unit} has been used since. Save them as a new count anyway? On hand would go back to ${fmtQty(item.counted)} ${item.unit}.`)) return;
+    startTransition(async () => {
     setMessage('');
     try {
       const result = await countInventoryItemAction({ id: item.id, expectedVersion: item.version, openAmount, packages: item.packages.map(option => ({ id: option.id, sealedBags: sealed[option.id] ?? option.sealedBags })) });
       if (!result.ok) { setMessage(result.error); return; }
       router.refresh();
     } catch { setMessage('Could not confirm the count. Refresh and try again.'); }
-  });
+    });
+  };
   const number = (label: string, value: number, change: (value: number) => void) => <input type="number" min={0} step="any" inputMode="decimal" aria-label={label} value={value} disabled={pending} onChange={e => change(e.target.valueAsNumber || 0)} />;
   return <tr className={stockStatus(item.onHand, item.par) === 'ok' ? undefined : styles.short}>
     <td>{item.name}<span className={styles.sub}>{item.category} · ${unitCost(item.packages).toLocaleString('en-US', { maximumFractionDigits: 4 })} per {item.unit}{item.notes ? ` · ${item.notes}` : ''}</span></td>
@@ -41,7 +45,7 @@ function CountRow({ item }: { item: StockRow }) {
       {!changed && item.onHand < 0 && <span className={styles.sub}>Usage exceeds the count: recount</span>}</td>
     <td data-label="Status"><StockPill quantity={item.onHand} par={item.par} />{item.par > 0 && <span className={styles.sub} style={{ whiteSpace: 'nowrap' }}>par {fmtQty(item.par)}</span>}</td>
     <td data-label=""><div className={posStyles.actions}>
-      <button type="button" className={changed ? posStyles.primary : posStyles.secondary} disabled={pending} onClick={save} aria-label={`Save count for ${item.name}`} title="Records a count now, even if the numbers did not change">{pending ? 'Saving…' : 'Save count'}</button>
+      <button type="button" className={changed ? posStyles.primary : posStyles.secondary} disabled={pending} onClick={save} aria-label={`Save count for ${item.name}`} title="Records what you counted as the new starting point">{pending ? 'Saving…' : 'Save count'}</button>
       <ItemDialog item={item} />
     </div>{message && <p role="alert" className={posStyles.error}>{message}</p>}</td>
   </tr>;

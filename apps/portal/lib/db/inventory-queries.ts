@@ -4,7 +4,7 @@ import { db } from './index';
 import { inventoryEquipment, inventoryItemPackages, inventoryItems, inventoryMenuLinks, inventoryRecipes, posDrinkLogs, posEvents, posMenuItems, type InventoryItem, type InventoryItemPackage, type InventoryRecipe } from './schema';
 import {
   InventoryError, countedQuantity, drinkCapacities, drinkWarnings, readBundle, recipeRefs, resolveDrinkRecipes, slugify, stockMap, usageFromLogs, workingBody,
-  type LinkRow, type UsageLog,
+  type ImportItem, type LinkRow, type UsageLog,
 } from '../inventory';
 import type { PosActor } from '../pos';
 import {
@@ -95,19 +95,19 @@ export type StockRow = Awaited<ReturnType<typeof stockWithUsage>>['items'][numbe
 
 /**
  * What stock can make of the drinks on these POS events' menus, and which are running low (20 or fewer left).
- * Removed and temporarily unavailable drinks are skipped.
+ * Removed drinks are skipped; temporarily unavailable drinks get a figure but no warning, since nobody can order them.
  */
 async function menuCapacity(tx: Tx, eventIds: string[], stock: Awaited<ReturnType<typeof stockWithUsage>>) {
   if (!eventIds.length) return { drinks: [], warnings: [] };
-  const menu = await tx.select({ id: posMenuItems.id, eventId: posMenuItems.eventId, name: posMenuItems.name, options: posMenuItems.options })
-    .from(posMenuItems).where(and(inArray(posMenuItems.eventId, eventIds), isNull(posMenuItems.archivedAt), eq(posMenuItems.available, true))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
+  const menu = await tx.select({ id: posMenuItems.id, eventId: posMenuItems.eventId, name: posMenuItems.name, options: posMenuItems.options, available: posMenuItems.available })
+    .from(posMenuItems).where(and(inArray(posMenuItems.eventId, eventIds), isNull(posMenuItems.archivedAt))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
   const { links } = resolveDrinkRecipes(menu, await linkRows(tx, menu.map(drink => drink.id)), stock.refs);
   const lines = stockMap(stock.items);
   const capacities = drinkCapacities(menu, links, stock.refs, lines);
   const eventOf = new Map(menu.map(drink => [drink.id, drink.eventId]));
   return {
-    drinks: menu.flatMap(drink => { const capacity = capacities.get(drink.id); return capacity ? [{ id: drink.id, eventId: drink.eventId, name: drink.name, capacity }] : []; }),
-    warnings: drinkWarnings(menu, links, stock.refs, lines).map(warning => ({ ...warning, eventId: eventOf.get(warning.menuItemId)! })),
+    drinks: menu.flatMap(drink => { const capacity = capacities.get(drink.id); return capacity ? [{ id: drink.id, eventId: drink.eventId, name: drink.name, available: drink.available, capacity }] : []; }),
+    warnings: drinkWarnings(menu.filter(drink => drink.available), links, stock.refs, lines).map(warning => ({ ...warning, eventId: eventOf.get(warning.menuItemId)! })),
   };
 }
 
@@ -120,11 +120,12 @@ export async function getInventoryStock(actor: PosActor) {
     const names = new Map(live.map(event => [event.id, event.name]));
     const { drinks, warnings } = await menuCapacity(tx, live.map(event => event.id), stock);
     // The current or next event is the one whose drinks the stock page summarises.
-    const next = live.find(event => drinks.some(drink => drink.eventId === event.id)) ?? null;
+    const orderable = drinks.filter(drink => drink.available);
+    const next = live.find(event => orderable.some(drink => drink.eventId === event.id)) ?? null;
     return {
       items: stock.items,
       warnings: warnings.map(warning => ({ ...warning, eventName: names.get(warning.eventId) ?? '' })),
-      nextEvent: next ? { ...next, drinks: drinks.filter(drink => drink.eventId === next.id) } : null,
+      nextEvent: next ? { ...next, drinks: orderable.filter(drink => drink.eventId === next.id) } : null,
     };
   }, readOnly);
 }
@@ -142,11 +143,12 @@ export async function getRecipeWithStock(actor: PosActor, recipeId: string) {
   return db.transaction(async tx => {
     const [recipe] = await tx.select().from(inventoryRecipes).where(eq(inventoryRecipes.id, id));
     if (!recipe) return null;
-    const { items } = await stockWithUsage(tx);
-    const linked = await tx.select({ menuItemId: posMenuItems.id, eventId: posEvents.id, eventName: posEvents.name, startsAt: posEvents.startsAt, drinkName: posMenuItems.name })
-      .from(inventoryMenuLinks).innerJoin(posMenuItems, eq(posMenuItems.id, inventoryMenuLinks.menuItemId)).innerJoin(posEvents, eq(posEvents.id, inventoryMenuLinks.eventId))
-      .where(and(eq(inventoryMenuLinks.recipeId, id), eq(inventoryMenuLinks.track, true))).orderBy(desc(posEvents.startsAt));
-    return { recipe, items, linked };
+    const { items, refs } = await stockWithUsage(tx);
+    // Drinks pour this recipe by a pin or by matching its name, so resolve every current menu drink the same way usage does.
+    const drinks = await tx.select({ menuItemId: posMenuItems.id, eventId: posEvents.id, eventName: posEvents.name, startsAt: posEvents.startsAt, drinkName: posMenuItems.name })
+      .from(posMenuItems).innerJoin(posEvents, eq(posEvents.id, posMenuItems.eventId)).where(isNull(posMenuItems.archivedAt)).orderBy(desc(posEvents.startsAt));
+    const { links } = resolveDrinkRecipes(drinks.map(drink => ({ id: drink.menuItemId, name: drink.drinkName })), await linkRows(tx, drinks.map(drink => drink.menuItemId)), refs);
+    return { recipe, items, linked: drinks.filter(drink => links.get(drink.menuItemId) === id) };
   }, readOnly);
 }
 export async function listEquipment(actor: PosActor) {
@@ -161,10 +163,13 @@ export async function listInventoryEvents(actor: PosActor) {
     const events = await tx.select({ id: posEvents.id, name: posEvents.name, startsAt: posEvents.startsAt, endsAt: posEvents.endsAt }).from(posEvents).orderBy(desc(posEvents.startsAt));
     const menu = await tx.select({ id: posMenuItems.id, eventId: posMenuItems.eventId, name: posMenuItems.name, planned: inventoryMenuLinks.plannedServings })
       .from(posMenuItems).leftJoin(inventoryMenuLinks, eq(inventoryMenuLinks.menuItemId, posMenuItems.id)).where(isNull(posMenuItems.archivedAt));
-    const { links } = resolveDrinkRecipes(menu, await linkRows(tx, menu.map(drink => drink.id)), recipeRefs(await tx.select().from(inventoryRecipes)));
+    const refs = recipeRefs(await tx.select().from(inventoryRecipes));
+    const { links } = resolveDrinkRecipes(menu, await linkRows(tx, menu.map(drink => drink.id)), refs);
+    // Only a published recipe deducts stock, so only those count as linked.
+    const tracked = (id: string) => { const recipeId = links.get(id); return !!recipeId && !!refs.get(recipeId)?.published; };
     return events.map(event => {
       const drinks = menu.filter(drink => drink.eventId === event.id);
-      return { ...event, drinks: drinks.length, linked: drinks.filter(drink => links.get(drink.id)).length, planned: drinks.reduce((sum, drink) => sum + (drink.planned ?? 0), 0) };
+      return { ...event, drinks: drinks.length, linked: drinks.filter(drink => tracked(drink.id)).length, planned: drinks.reduce((sum, drink) => sum + (drink.planned ?? 0), 0) };
     });
   }, readOnly);
 }
@@ -225,12 +230,19 @@ async function packagesOf(tx: Tx, itemId: string) {
 /** Make an item's purchase options exactly `next`: update those with an id, add the rest, remove what is missing. */
 async function replacePackages(tx: Tx, itemId: string, next: ItemFields['packages']) {
   const current = await packagesOf(tx, itemId);
-  const known = new Set(current.map(option => option.id));
-  const foreign = next.find(option => option.id && !known.has(option.id));
+  const byId = new Map(current.map(option => [option.id, option]));
+  const foreign = next.find(option => option.id && !byId.has(option.id));
   if (foreign) throw new InventoryError('A purchase option changed. Refresh before saving again.');
   const keep = next.flatMap(option => option.id ? [option.id] : []);
   await tx.delete(inventoryItemPackages).where(and(eq(inventoryItemPackages.itemId, itemId), keep.length ? notInArray(inventoryItemPackages.id, keep) : undefined));
-  // Clear `preferred` first so moving it between options never trips the one-preferred index mid-update.
+  // The supplier/size index is checked row by row, so swapping two options' keys would collide mid-update. Park every
+  // changing key on a unique placeholder first (a private-use character, since text cannot hold NUL), and clear `preferred` so moving it never trips the one-preferred index.
+  for (const option of next) {
+    const before = option.id ? byId.get(option.id) : undefined;
+    if (before && packageKey(before.supplier, before.bagSize) !== packageKey(option.supplier, option.bagSize)) {
+      await tx.update(inventoryItemPackages).set({ supplier: `\uE000${before.id}` }).where(eq(inventoryItemPackages.id, before.id));
+    }
+  }
   await tx.update(inventoryItemPackages).set({ preferred: false }).where(eq(inventoryItemPackages.itemId, itemId));
   for (const option of next) {
     if (option.id) await tx.update(inventoryItemPackages).set(optionValues(option)).where(eq(inventoryItemPackages.id, option.id));
@@ -249,6 +261,15 @@ async function renameInRecipes(tx: Tx, from: string, to: string, actorId: string
   }
 }
 
+// Count times use the database clock, the same clock that stamps POS orders, so an order is never put on the wrong
+// side of a count by a skewed app server.
+const countedNow = sql`now()`;
+
+/**
+ * Create an item, or edit one. Editing never moves the count time: an edit is an adjustment (a new supplier, a price,
+ * removing a purchase option), and drinks logged since the last count still come off. Only Save count and an import
+ * that changes the counted total record a new count.
+ */
 export async function saveInventoryItem(actor: PosActor, input: unknown) {
   admin(actor); const value = saveItemSchema.parse(input);
   return unique(db.transaction(async tx => {
@@ -261,23 +282,18 @@ export async function saveInventoryItem(actor: PosActor, input: unknown) {
     const [current] = await tx.select().from(inventoryItems).where(eq(inventoryItems.id, value.id)).for('update');
     if (!current) throw new InventoryError('That item is no longer in the inventory.');
     if (current.version !== value.expectedVersion) throw new InventoryError('This item changed. Refresh before saving again.');
-    const before = countedQuantity({ openAmount: current.openAmount, packages: await packagesOf(tx, current.id) });
     if (current.name !== value.name) await renameInRecipes(tx, current.name, value.name, actor.id);
     await replacePackages(tx, current.id, value.packages);
-    const [item] = await tx.update(inventoryItems).set({
-      ...itemValues(value), version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id,
-      // A changed total is a new count; editing a supplier name or price is not.
-      ...(countedQuantity(value) !== before ? { countedAt: new Date() } : {}),
-    }).where(eq(inventoryItems.id, current.id)).returning();
+    const [item] = await tx.update(inventoryItems).set({ ...itemValues(value), version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id }).where(eq(inventoryItems.id, current.id)).returning();
     return item;
   }), itemUniqueMessages, 'Another item already has that name.');
 }
 
-/** Record a physical count. This always resets the count time, even when the numbers match, because it was counted. */
+/** Record a physical count. The count time moves to now, so only drinks logged after this come off. */
 export async function countInventoryItem(actor: PosActor, input: unknown) {
   admin(actor); const value = countItemSchema.parse(input);
   return db.transaction(async tx => {
-    const [item] = await tx.update(inventoryItems).set({ openAmount: value.openAmount, countedAt: new Date(), version: value.expectedVersion + 1, updatedAt: new Date(), updatedBy: actor.id })
+    const [item] = await tx.update(inventoryItems).set({ openAmount: value.openAmount, countedAt: countedNow, version: value.expectedVersion + 1, updatedAt: new Date(), updatedBy: actor.id })
       .where(and(eq(inventoryItems.id, value.id), eq(inventoryItems.version, value.expectedVersion))).returning();
     if (!item) throw new InventoryError('This item changed. Refresh before recording the count.');
     const known = new Set((await packagesOf(tx, item.id)).map(option => option.id));
@@ -297,14 +313,15 @@ export async function deleteInventoryItem(actor: PosActor, input: unknown) {
 
 /**
  * Merge items by name and their purchase options by supplier and bag size: a match updates it, anything new is added,
- * and nothing is ever deleted. Existing preferred choices are kept.
+ * and nothing is ever deleted. Only fields the file provides are written, so a count sheet with just Item, Supplier,
+ * Bag size and Sealed bags changes the counts and nothing else. A changed counted total is a new count.
  */
-async function mergeItems(tx: Tx, actor: PosActor, rows: ItemFields[]) {
+async function mergeItems(tx: Tx, actor: PosActor, rows: ImportItem[]) {
   const existing = rows.length ? await tx.select().from(inventoryItems).where(inArray(inventoryItems.name, rows.map(row => row.name))).for('update') : [];
   const byName = new Map(existing.map(item => [item.name, item]));
   let added = 0, updated = 0;
   for (const row of rows) {
-    const current = byName.get(row.name);
+    const current = byName.get(row.name); const has = row.provided;
     if (!current) {
       const [created] = await tx.insert(inventoryItems).values({ ...itemValues(row), updatedBy: actor.id }).returning();
       if (row.packages.length) await tx.insert(inventoryItemPackages).values(row.packages.map(option => ({ ...optionValues(option), itemId: created.id })));
@@ -313,19 +330,30 @@ async function mergeItems(tx: Tx, actor: PosActor, rows: ItemFields[]) {
     const options = await packagesOf(tx, current.id);
     const before = countedQuantity({ openAmount: current.openAmount, packages: options });
     const byKey = new Map(options.map(option => [packageKey(option.supplier, option.bagSize), option]));
+    if (has.preferred && row.packages.some(option => option.preferred)) await tx.update(inventoryItemPackages).set({ preferred: false }).where(eq(inventoryItemPackages.itemId, current.id));
+    const keepPreferred = !has.preferred && options.some(option => option.preferred);
     for (const option of row.packages) {
       const match = byKey.get(packageKey(option.supplier, option.bagSize));
-      if (match) await tx.update(inventoryItemPackages).set({ costPerBag: option.costPerBag, sealedBags: option.sealedBags }).where(eq(inventoryItemPackages.id, match.id));
-      else await tx.insert(inventoryItemPackages).values({ ...optionValues(option), preferred: option.preferred && !options.some(o => o.preferred), itemId: current.id });
+      const preferred = has.preferred ? option.preferred : option.preferred && !keepPreferred;
+      if (match) {
+        await tx.update(inventoryItemPackages).set({
+          ...(has.costPerBag ? { costPerBag: option.costPerBag } : {}), ...(has.sealedBags ? { sealedBags: option.sealedBags } : {}), ...(has.preferred ? { preferred } : {}),
+        }).where(eq(inventoryItemPackages.id, match.id));
+      } else await tx.insert(inventoryItemPackages).values({ ...optionValues(option), preferred, itemId: current.id });
     }
-    const after = countedQuantity({ openAmount: row.openAmount, packages: await packagesOf(tx, current.id) });
-    await tx.update(inventoryItems).set({ ...itemValues(row), version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id, ...(after !== before ? { countedAt: new Date() } : {}) }).where(eq(inventoryItems.id, current.id));
+    const openAmount = has.openAmount ? row.openAmount : current.openAmount;
+    const after = countedQuantity({ openAmount, packages: await packagesOf(tx, current.id) });
+    await tx.update(inventoryItems).set({
+      ...(has.category ? { category: row.category } : {}), ...(has.unit ? { unit: row.unit } : {}), ...(has.par ? { par: row.par } : {}), ...(has.notes ? { notes: row.notes } : {}),
+      openAmount, version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id, ...(after !== before ? { countedAt: countedNow } : {}),
+    }).where(eq(inventoryItems.id, current.id));
     updated++;
   }
   return { added, updated };
 }
-export async function importInventoryItems(actor: PosActor, rows: ItemFields[]) {
-  admin(actor); const items = rows.map(row => itemFieldsSchema.parse(row));
+export async function importInventoryItems(actor: PosActor, rows: ImportItem[]) {
+  admin(actor);
+  const items = rows.map(({ provided, ...row }) => ({ ...itemFieldsSchema.parse(row), provided }));
   return unique(db.transaction(tx => mergeItems(tx, actor, items)), itemUniqueMessages, 'Two rows resolve to the same item. Refresh and try again.');
 }
 
@@ -443,9 +471,11 @@ export async function importBundle(actor: PosActor, parsed: unknown) {
 
     let equipmentAdded = 0, equipmentUpdated = 0;
     const currentEquipment = new Map((await tx.select().from(inventoryEquipment).for('update')).map(row => [row.name, row]));
-    for (const row of read.equipment) {
+    for (const { provided, ...row } of read.equipment) {
       const current = currentEquipment.get(row.name);
-      if (current) { await tx.update(inventoryEquipment).set({ ...row, version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id }).where(eq(inventoryEquipment.id, current.id)); equipmentUpdated++; }
+      // Only keys present in the file are written, so a short row does not blank out location or custodian.
+      const changes = Object.fromEntries(Object.entries(row).filter(([key]) => provided.has(key as keyof typeof row)));
+      if (current) { await tx.update(inventoryEquipment).set({ ...changes, version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id }).where(eq(inventoryEquipment.id, current.id)); equipmentUpdated++; }
       else { await tx.insert(inventoryEquipment).values({ ...row, updatedBy: actor.id }); equipmentAdded++; }
     }
 
@@ -453,10 +483,13 @@ export async function importBundle(actor: PosActor, parsed: unknown) {
     const currentRecipes = new Map((await tx.select().from(inventoryRecipes).for('update')).map(row => [row.slug, row]));
     for (const row of read.recipes) {
       const current = currentRecipes.get(row.slug);
-      // A published row lands in the published slot and a draft row in the draft slot, so the split survives a round trip.
-      const slots = row.status === 'published'
-        ? { published: row.body, draft: null, publishedVersion: (current?.publishedVersion ?? 0) + 1, publishedAt: new Date(), publishedBy: actor.id }
-        : { draft: row.body };
+      // A published row lands in the published slot and a draft row in the draft slot, so the split survives a round
+      // trip. Unpublished edits already here are kept, and re-importing the same published body is not a new version.
+      // jsonb reorders keys, so both sides go through the schema for a stable key order before comparing.
+      const unchanged = !!current?.published && JSON.stringify(recipeBodySchema.parse(current.published)) === JSON.stringify(recipeBodySchema.parse(row.body));
+      const slots = row.status === 'draft' ? { draft: row.body }
+        : unchanged ? {}
+        : { published: row.body, publishedVersion: (current?.publishedVersion ?? 0) + 1, publishedAt: new Date(), publishedBy: actor.id };
       if (current) { await tx.update(inventoryRecipes).set({ ...slots, version: current.version + 1, updatedAt: new Date(), updatedBy: actor.id }).where(eq(inventoryRecipes.id, current.id)); recipesUpdated++; }
       else { await tx.insert(inventoryRecipes).values({ slug: row.slug, ...slots, updatedBy: actor.id }); recipesAdded++; }
     }

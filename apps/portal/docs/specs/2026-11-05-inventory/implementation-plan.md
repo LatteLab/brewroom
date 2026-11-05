@@ -29,6 +29,19 @@ Date: November 5, 2026. Implements the [design](design.md). Paths are relative t
 - [x] `drinkCapacity` reports drinks left per drink type with the first ingredient to run out; shown on the event page, the Stock page (current or next event) and recipe cards, and used by the warnings.
 - [x] Decluttered: one-line summaries instead of stat grids, empty sections collapse to a sentence, a five-column stock table, and the recipe card's misleading batch scaler removed.
 
+## Follow-up: review fixes
+
+An independent review and targeted checks found, and this change fixes, with a test for each:
+- partial CSV or bundle imports reset fields they did not contain (unit, category, par, cost, location);
+- Save count with unchanged numbers, or a delivery entered in Edit, discarded usage since the count;
+- the shopping list counted drinks already served twice;
+- re-importing a published recipe deleted its draft and bumped its version;
+- names without Latin letters matched the wrong recipe, accents broke matching, and an ambiguous name was reported as missing;
+- an unpublished pinned recipe showed as "Using …" and as linked;
+- capacity hid ingredients missing from inventory; quoted numbers in bundles became 0;
+- the recipe page ignored drinks matched by name; swapping two options' supplier or size failed;
+- CSV lost the preferred option; count times used the app clock instead of the database's; the import limit counted characters, not bytes.
+
 ## Verification record
 
 - After the follow-up: `test:inventory` 10 pass, `test:inventory:db` 8 pass, `test:pos` 8 pass, `test:pos:db` 17 pass. Lint has no errors (5 existing warnings). Migration and `drizzle-kit push` DDL match. The real prototype bundle converts with identical quantities and costs per unit. In the browser, a drink named like a recipe deducted with no setup, a count of 3,000 ml whole milk raised "About 15 Vanilla Latte left" on the Stock page and kiosk, and logging one drink in the kiosk changed it to 14.

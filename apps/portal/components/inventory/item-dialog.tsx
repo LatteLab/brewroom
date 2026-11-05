@@ -11,7 +11,7 @@ import type { InventoryItem, InventoryItemPackage } from '@/lib/db/schema';
 import posStyles from '../pos/pos.module.css';
 import styles from './inventory.module.css';
 
-type Item = InventoryItem & { packages: InventoryItemPackage[] };
+type Item = InventoryItem & { packages: InventoryItemPackage[]; usedSinceCount: number };
 const blankOption: PackageFields = { supplier: '', bagSize: 0, costPerBag: 0, sealedBags: 0, preferred: true };
 const blank: ItemFields = { name: '', category: 'Other', unit: 'ml', openAmount: 0, par: 0, notes: '', packages: [blankOption] };
 function toFields(item: Item): ItemFields {
@@ -42,7 +42,7 @@ export function ItemDialog({ item }: { item?: Item }) {
     <DialogContent className={`${posStyles.deleteDialog} sm:max-w-3xl`} showCloseButton={!pending}>
       <DialogHeader>
         <DialogTitle>{item ? 'Edit item' : 'Add item'}</DialogTitle>
-        <DialogDescription>One item per ingredient that recipes use. If you buy it in more than one size or from more than one supplier, add each as a purchase option rather than a separate item. Quantity on hand is the sealed bags of every option plus the open amount.{item ? ' Renaming updates every recipe that uses this item.' : ''}</DialogDescription>
+        <DialogDescription>One item per ingredient that recipes use. If you buy it in more than one size or from more than one supplier, add each as a purchase option rather than a separate item.{item ? ' Counts here are the last count: add a delivery to them, and drinks logged since still come off. For a fresh count, use Save count in the stock table. Renaming updates every recipe that uses this item.' : ''}</DialogDescription>
       </DialogHeader>
       <form onSubmit={e => { e.preventDefault(); run(() => saveInventoryItemAction(item ? { ...fields, id: item.id, expectedVersion: item.version } : fields)); }}>
         <div className={styles.dialogGrid}>
@@ -50,7 +50,7 @@ export function ItemDialog({ item }: { item?: Item }) {
           <label>Category<select value={fields.category} onChange={e => set('category', e.target.value as ItemFields['category'])}>{itemCategories.map(c => <option key={c}>{c}</option>)}</select></label>
           <label>Unit used in recipes<select value={fields.unit} onChange={e => set('unit', e.target.value as ItemFields['unit'])}>{units.map(u => <option key={u}>{u}</option>)}</select></label>
           <label>Par level, {fields.unit} (reorder at)<input type="number" inputMode="decimal" min={0} step="any" required value={fields.par} onChange={e => set('par', e.target.valueAsNumber || 0)} /></label>
-          <label>Open amount, {fields.unit}<input type="number" inputMode="decimal" min={0} step="any" required value={fields.openAmount} onChange={e => set('openAmount', e.target.valueAsNumber || 0)} /></label>
+          <label>{item ? 'Open amount at last count' : 'Open amount'}, {fields.unit}<input type="number" inputMode="decimal" min={0} step="any" required value={fields.openAmount} onChange={e => set('openAmount', e.target.valueAsNumber || 0)} /></label>
           <label>Notes<input maxLength={1000} value={fields.notes} placeholder="1 pump ≈ 10 ml" onChange={e => set('notes', e.target.value)} /></label>
         </div>
         <fieldset style={{ marginTop: 16 }}>
@@ -61,12 +61,12 @@ export function ItemDialog({ item }: { item?: Item }) {
             <label>Bag size, {fields.unit}<input type="number" inputMode="decimal" min={0} step="any" required value={option.bagSize} onChange={e => setOption(index, { bagSize: e.target.valueAsNumber || 0 })} /></label>
             <label>Cost per bag ($)<input type="number" inputMode="decimal" min={0} step="any" required value={option.costPerBag} onChange={e => setOption(index, { costPerBag: e.target.valueAsNumber || 0 })} />
               <span className={styles.sub}>{option.bagSize > 0 ? `${money(option.costPerBag / option.bagSize)} per ${fields.unit}` : 'Enter a bag size'}</span></label>
-            <label>Sealed bags<input type="number" inputMode="decimal" min={0} step="any" required value={option.sealedBags} onChange={e => setOption(index, { sealedBags: e.target.valueAsNumber || 0 })} /></label>
+            <label>{item ? 'Sealed bags at last count' : 'Sealed bags'}<input type="number" inputMode="decimal" min={0} step="any" required value={option.sealedBags} onChange={e => setOption(index, { sealedBags: e.target.valueAsNumber || 0 })} /></label>
             <label className={styles.radio}><input type="radio" name="preferred" checked={option.preferred} onChange={() => setOption(index, { preferred: true })} />Preferred</label>
             <button type="button" className={styles.iconButton} aria-label={`Remove purchase option ${index + 1}`} onClick={() => setFields(current => ({ ...current, packages: current.packages.filter((_, i) => i !== index) }))}><X size={16} aria-hidden="true" /></button>
           </div>)}
           <button type="button" className={posStyles.secondary} onClick={() => setFields(current => ({ ...current, packages: [...current.packages, { ...blankOption, preferred: !current.packages.length }] }))}>Add purchase option</button>
-          <p className={posStyles.muted} style={{ marginTop: 8 }}>On hand {fmtQty(countedQuantity({ openAmount: fields.openAmount, packages: fields.packages }))} {fields.unit} · average {money(perUnit)} per {fields.unit}</p>
+          <p className={posStyles.muted} style={{ marginTop: 8 }}>{item ? 'Last count' : 'On hand'} {fmtQty(countedQuantity({ openAmount: fields.openAmount, packages: fields.packages }))} {fields.unit}{item && item.usedSinceCount > 0 ? `, before ${fmtQty(item.usedSinceCount)} ${fields.unit} used since` : ''} · average {money(perUnit)} per {fields.unit}</p>
         </fieldset>
         {error && <p role="alert" className={posStyles.error}>{error}</p>}
         <DialogFooter className="mt-4">

@@ -39,7 +39,7 @@ Rules kept from the prototype:
 - **Units are never converted.** A recipe line uses its inventory item's unit.
 - **Two recipe bodies.** Editing writes `draft`; only **Publish** changes what POS usage and plans use. Unpublishing returns the content to draft and stops linked drinks counting.
 - **Recipes refer to items by name**, which keeps the exchange format readable. The prototype's known weakness (a rename orphans recipes) is fixed: renaming an item rewrites references in every recipe body in the same transaction.
-- **Import never deletes.** Inventory and equipment match by name, recipes by slug.
+- **Import never deletes, and never blanks.** Inventory and equipment match by name, recipes by slug. Only the columns or keys a file actually has are written to an existing record, so a four-column count sheet changes counts and nothing else. Re-importing a published recipe keeps its unpublished draft and is not a new version unless the body changed.
 
 ## One ingredient, several ways to buy it
 
@@ -61,7 +61,7 @@ Example: a latte lists whole milk (`whole`), oat milk (`oat`), syrup (`syrup`), 
 
 ## Stock on hand
 
-`counted_at` is set whenever someone records a count (always on **Save count**, and on any edit or import that changes the counted total; a price or supplier edit is not a count). For each item:
+`counted_at` is set by the database clock (the same clock that stamps POS orders) when someone records a count: always on **Save count**, and on an import that changes the counted total. **Edit never moves it**: an edit is an adjustment, so adding a delivery's bags there raises on hand while the drinks logged since the count still come off. Save count with unchanged numbers after drinks were logged asks first, because it would discard that usage. For each item:
 
 ```
 on hand now = counted − Σ usage from valid POS logs recorded after counted_at
@@ -71,7 +71,7 @@ Usage is computed on read from logs whose `voided_at` is null, so voids and corr
 
 ## Which recipe a POS drink pours
 
-POS menus are created fresh for every event, so linking each drink by hand would have to be redone every time. Instead a drink uses the **published recipe whose name matches it** (compared as slugs, so case and punctuation do not matter). Logging that drink deducts the recipe immediately with no setup. On the event page an admin can pin a different published recipe when names differ, or choose **Don't track this drink**. A name shared by two published recipes matches neither, rather than guessing.
+POS menus are created fresh for every event, so linking each drink by hand would have to be redone every time. Instead a drink uses the **published recipe whose name matches it** (ignoring case, accents, spacing and punctuation, in any script). Logging that drink deducts the recipe immediately with no setup. On the event page an admin can pin a different published recipe when names differ, or choose **Don't track this drink**. A name shared by two published recipes matches neither, rather than guessing.
 
 ## What stock can make, and running-low warnings
 
@@ -87,7 +87,7 @@ Removed and temporarily unavailable drinks are not warned about. Each drink is a
 
 ## Event planning
 
-The event page lists the POS menu live (archived drinks remain only if they have valid orders). For each drink an admin can override its recipe and enter planned servings. Demand uses each drink's **default configuration**, because the real hot/iced and milk mix is unknown before service. Rows show needed versus estimated on hand, and shortfalls round up to whole bags of the option to buy. Planned drinks without a recipe, or with an unpublished one, are named in a banner rather than dropped silently. **Recorded usage** applies each valid log's real configuration to the linked recipe.
+The event page lists the POS menu live (archived drinks remain only if they have valid orders). For each drink an admin can override its recipe and enter planned servings. Demand uses each drink's **default configuration**, because the real hot/iced and milk mix is unknown before service. It covers only the drinks **still to serve** (planned minus already logged), because logged drinks have already come off on hand. Rows show needed versus on hand, and shortfalls round up to whole bags of the option to buy. Planned drinks without a recipe, or with an unpublished one, are named in a banner rather than dropped silently. **Recorded usage** applies each valid log's real configuration to the linked recipe.
 
 ## Access
 
@@ -97,7 +97,7 @@ Admin only, the same audience as POS, which is itself admin-only. Every query fu
 
 Import and export use the prototype's `lattelab-data` version 1 bundle. A prototype inventory row becomes one ingredient with one purchase option, with cost per bag = cost per unit × bag size. The prototype's real `exchange/bundle.json` (40 items, 38 equipment, 22 recipes) imports with no skipped rows and the same quantity and cost per unit for every item. Exports keep the prototype's single-bag fields, using the option to buy next with sealed bags expressed in that size so `bagSize × sealedBags + openBag` is still the total, and add `costPerBag`, `packages`, and `when`/`scale` on ingredients; the format allows new fields without a version bump. Re-import merges purchase options by supplier and bag size and never deletes one. Guidelines are counted and ignored on import.
 
-The inventory CSV now has one row per purchase option (`Item, Category, Unit, Supplier, Bag size, Sealed bags, Open bag, Qty on hand, Par level, Cost per bag, Cost per unit, Notes`). Rows sharing an Item form one ingredient. Prototype sheets with one row per item and `Cost per unit` still import.
+The inventory CSV now has one row per purchase option (`Item, Category, Unit, Supplier, Bag size, Sealed bags, Open bag, Qty on hand, Par level, Cost per bag, Cost per unit, Preferred, Notes`). Rows sharing an Item form one ingredient. Prototype sheets with one row per item and `Cost per unit` still import.
 
 ## Assumptions to confirm
 

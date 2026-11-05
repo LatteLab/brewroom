@@ -3,7 +3,7 @@ import { after, before, test } from 'node:test';
 import { readFile, readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { buildBundle } from '../lib/inventory';
+import { buildBundle, csvToInventory } from '../lib/inventory';
 import { defaultMenuOptions } from '../lib/validations/pos';
 import type { RecipeBody } from '../lib/validations/inventory';
 
@@ -121,6 +121,7 @@ test('POS logs, voids and corrections flow into stock; a recount resets the base
   const published = (await inventory.listRecipes(admin)).find(r => r.id === recipe.id)!;
   await inventory.unpublishRecipe(admin, { id: recipe.id, expectedVersion: published.version });
   assert.equal((await stockOf(beans.name)).usedSinceCount, 0);
+  assert.equal((await inventory.listInventoryEvents(admin)).find(e => e.id === event.id)?.linked, 0, 'a pinned but unpublished recipe is not counted as tracking');
   const view = await inventory.getEventInventory(admin, event.id);
   assert(view); assert.equal(view.menu[0].logged, 2);
 });
@@ -166,7 +167,7 @@ test('event plans read the live POS menu, keep removed drinks that sold, and nev
   assert.equal((await stockOf(beans.name)).usedSinceCount, 0, 'deleting an event removes its orders from usage, as it does from analytics');
 });
 
-test('purchase options group one ingredient: edits keep ids, move the preferred flag and only recount on a changed total', async () => {
+test('purchase options group one ingredient: edits keep ids, move the preferred flag, swap keys, and never move the count time', async () => {
   const s = suffix();
   const milk = await inventory.saveInventoryItem(admin, { name: `Milk ${s}`, category: 'Milk', unit: 'ml', openAmount: 500, par: 0, notes: '', packages: [
     { supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 2, preferred: true }, { supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1, preferred: false },
@@ -175,7 +176,7 @@ test('purchase options group one ingredient: edits keep ids, move the preferred 
   assert.deepEqual([first.counted, first.packages.length], [3785 * 2 + 1893 + 500, 2]);
   const [costco, star] = ['Costco', 'Star Market'].map(supplier => first.packages.find(o => o.supplier === supplier)!);
   assert.deepEqual(first.packages.map(o => o.supplier), ['Costco', 'Star Market'], 'options are listed by supplier, then size');
-  // A price change and moving "preferred" is not a new count; adding a third option with stock is.
+  // Edits are adjustments: a price change, moving "preferred", and adding an option with stock all keep the count time.
   const repriced = await inventory.saveInventoryItem(admin, { id: milk.id, expectedVersion: first.version, name: milk.name, category: 'Milk', unit: 'ml', openAmount: 500, par: 0, notes: '', packages: [
     { id: costco.id, supplier: 'Costco', bagSize: 3785, costPerBag: 4.99, sealedBags: 2, preferred: false }, { id: star.id, supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1, preferred: true },
   ] });
@@ -188,8 +189,16 @@ test('purchase options group one ingredient: edits keep ids, move the preferred 
   const third = await stockOf(milk.name);
   assert.deepEqual(third.packages.map(o => o.supplier), ['Star Market', 'Trader Joe’s'], 'a removed option is deleted, a new one added');
   assert.equal(third.counted, 1893 + 946 * 3 + 500);
-  assert(third.countedAt > second.countedAt);
-  await assert.rejects(inventory.saveInventoryItem(admin, { id: milk.id, expectedVersion: third.version, name: milk.name, category: 'Milk', unit: 'ml', openAmount: 0, par: 0, notes: '', packages: [{ id: costco.id, supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 1, preferred: false }] }), /purchase option changed/);
+  assert.equal(third.countedAt.getTime(), first.countedAt.getTime(), 'an edit never moves the count time');
+  // Swapping two options' supplier and size in one save must not trip the supplier/size index mid-update.
+  const [starOption, tjOption] = ['Star Market', 'Trader Joe’s'].map(supplier => third.packages.find(o => o.supplier === supplier)!);
+  await inventory.saveInventoryItem(admin, { id: milk.id, expectedVersion: third.version, name: milk.name, category: 'Milk', unit: 'ml', openAmount: 500, par: 0, notes: '', packages: [
+    { id: starOption.id, supplier: 'Trader Joe’s', bagSize: 946, costPerBag: 2.5, sealedBags: 3, preferred: false }, { id: tjOption.id, supplier: 'Star Market', bagSize: 1893, costPerBag: 3.2, sealedBags: 1, preferred: true },
+  ] });
+  const swapped = await stockOf(milk.name);
+  assert.deepEqual(swapped.packages.map(o => [o.id, o.supplier]).sort(), [[starOption.id, 'Trader Joe’s'], [tjOption.id, 'Star Market']].sort());
+  assert.equal(swapped.counted, third.counted);
+  await assert.rejects(inventory.saveInventoryItem(admin, { id: milk.id, expectedVersion: swapped.version, name: milk.name, category: 'Milk', unit: 'ml', openAmount: 0, par: 0, notes: '', packages: [{ id: costco.id, supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 1, preferred: false }] }), /purchase option changed/);
 });
 
 test('renaming an item rewrites recipe references, names stay unique, and deletes leave recipes readable', async () => {
@@ -240,4 +249,57 @@ test('bundle import merges by name, supplier/size and slug, keeps the draft/publ
   assert.equal((await stockOf(`Cocoa ${s}`)).packages.length, 2, 'an import never deletes purchase options');
   await assert.rejects(inventory.importBundle(admin, { format: 'lattelab-data', version: 1, inventory: [{ name: 'x', unit: 'pump' }] }), /Nothing importable/);
   await assert.rejects(inventory.importBundle(member, file), /Administrator/);
+});
+
+test('an edit records a delivery without losing usage; Save count is what resets the baseline', async () => {
+  const { beans, recipe, event, drink } = await setup();
+  await inventory.saveMenuLink(admin, { eventId: event.id, menuItemId: drink.id, recipe: recipe.id, plannedServings: 0 });
+  await log(event.id, drink, 'Oat', 3);
+  const before = await stockOf(beans.name);
+  assert.deepEqual([before.counted, before.usedSinceCount, before.onHand], [2000, 54, 1946]);
+  // A delivery of two more bags, entered in Edit: on hand rises by 2,000 g and the 54 g already used still counts.
+  const fields = { name: beans.name, category: 'Coffee' as const, unit: 'g' as const, openAmount: 0, par: 500, notes: '', packages: before.packages.map(({ id, supplier, bagSize, costPerBag, preferred }) => ({ id, supplier, bagSize, costPerBag, sealedBags: 4, preferred })) };
+  await inventory.saveInventoryItem(admin, { id: beans.id, expectedVersion: before.version, ...fields });
+  const delivered = await stockOf(beans.name);
+  assert.deepEqual([delivered.counted, delivered.usedSinceCount, delivered.onHand], [4000, 54, 3946]);
+  await countAs(beans.name, 3, 500);
+  assert.deepEqual([(await stockOf(beans.name)).counted, (await stockOf(beans.name)).usedSinceCount], [3500, 0]);
+});
+
+test('partial imports only touch what the file provides; re-imports keep drafts and versions', async () => {
+  const s = suffix();
+  await inventory.saveInventoryItem(admin, { name: `Milk ${s}`, category: 'Milk', unit: 'ml', openAmount: 500, par: 2000, notes: 'jugs', packages: [{ supplier: 'Costco', bagSize: 3785, costPerBag: 4.5, sealedBags: 1, preferred: true }] });
+  // A count sheet with four columns changes the count and nothing else.
+  const sheet = csvToInventory(`Item,Supplier,Bag size,Sealed bags\nMilk ${s},Costco,3785,3`);
+  assert.deepEqual(await inventory.importInventoryItems(admin, sheet.items), { added: 0, updated: 1 });
+  const milk = await stockOf(`Milk ${s}`);
+  assert.deepEqual([milk.unit, milk.category, milk.par, milk.notes, milk.openAmount, milk.packages[0].costPerBag, milk.packages[0].sealedBags, milk.packages[0].preferred], ['ml', 'Milk', 2000, 'jugs', 500, 4.5, 3, true]);
+  assert.equal(milk.counted, 3785 * 3 + 500, 'a changed total is a new count');
+
+  // Equipment: a row with only a quantity keeps its location and custodian.
+  await inventory.saveEquipment(admin, { name: `Cart ${s}`, category: 'Furniture', quantity: 1, status: 'ok', location: 'Basement', custodian: 'Head barista', serial: '', notes: '', lastCheckedAt: '' });
+  await inventory.importBundle(admin, { format: 'lattelab-data', version: 1, equipment: [{ name: `Cart ${s}`, quantity: 2 }] });
+  const cart = (await inventory.listEquipment(admin)).find(e => e.name === `Cart ${s}`)!;
+  assert.deepEqual([cart.quantity, cart.location, cart.custodian, cart.category], [2, 'Basement', 'Head barista', 'Furniture']);
+
+  // A published recipe with unpublished edits survives a re-import of its own export, without a new version.
+  const body: RecipeBody = { name: `Mocha ${s}`, category: 'Espresso', steps: [], notes: '', ingredients: [{ item: `Milk ${s}`, qty: 150, unit: 'ml', note: '', when: 'always', scale: 'fixed' }] };
+  let recipe = await inventory.createRecipe(admin, { name: body.name });
+  recipe = await inventory.saveRecipeDraft(admin, { id: recipe.id, expectedVersion: recipe.version, body });
+  recipe = await inventory.publishRecipe(admin, { id: recipe.id, expectedVersion: recipe.version });
+  recipe = await inventory.saveRecipeDraft(admin, { id: recipe.id, expectedVersion: recipe.version, body: { ...body, notes: 'work in progress' } });
+  await inventory.importBundle(admin, JSON.parse(JSON.stringify(buildBundle([], [], [recipe]))));
+  const after = (await inventory.listRecipes(admin)).find(r => r.id === recipe.id)!;
+  assert.deepEqual([after.publishedVersion, after.draft?.notes, after.published?.notes], [1, 'work in progress', '']);
+});
+
+test('the recipe page lists drinks that pour it by name, and unavailable drinks still get a figure', async () => {
+  const { recipe, event, drink } = await setup('recipe');
+  const view = await inventory.getRecipeWithStock(admin, recipe.id);
+  assert.deepEqual(view?.linked.map(l => l.menuItemId), [drink.id], 'a name match counts as using the recipe');
+  const [current] = await pos.getPosMenu(admin, event.id);
+  await pos.savePosMenuItem(admin, { eventId: event.id, id: current.id, expectedVersion: current.version, name: current.name, options: current.options, available: false });
+  const plan = await inventory.getEventInventory(admin, event.id);
+  assert.notEqual(plan?.menu[0].capacity, null);
+  assert.deepEqual(plan?.warnings, []);
 });

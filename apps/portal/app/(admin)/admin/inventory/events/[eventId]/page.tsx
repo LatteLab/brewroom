@@ -18,7 +18,10 @@ export default async function EventInventoryPage({ params }: { params: Promise<{
   const view = await getEventInventory(actor, eventId); if (!view) notFound();
   const { event, menu, items, recipes, refs, logs, links, warnings } = view;
   const stock = stockMap(items);
-  const plan = eventPlan(menu.filter(drink => !drink.archivedAt).map(drink => ({ menuItemId: drink.id, name: drink.name, defaults: drink.options.defaults, plannedServings: drink.plannedServings })), links, refs, stock);
+  const plan = eventPlan(menu.filter(drink => !drink.archivedAt).map(drink => ({ menuItemId: drink.id, name: drink.name, defaults: drink.options.defaults, plannedServings: drink.plannedServings, logged: drink.logged })), links, refs, stock);
+  const plannedTotal = menu.filter(drink => !drink.archivedAt).reduce((sum, drink) => sum + drink.plannedServings, 0);
+  // Only a published recipe is really in use; a pinned recipe that was unpublished deducts nothing.
+  const inUse = (recipeId: string | null) => { const recipe = recipeId ? refs.get(recipeId) : undefined; return recipe?.published ? recipe.published.name : null; };
   const usage = usageFromLogs(logs, links, refs);
   const used = demandRows(usage.byItem, stock);
   const published = recipes.filter(recipe => recipe.published).map(recipe => ({ id: recipe.id, name: recipe.published!.name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -39,7 +42,7 @@ export default async function EventInventoryPage({ params }: { params: Promise<{
       {menu.length ? <div className={styles.tableWrap}><table className={`${styles.table} ${styles.stack}`}>
         <thead><tr><th>Drink</th><th>Recipe</th><th>Can make now</th><th className={styles.r}>Logged</th><th className={styles.r}>Planned</th><th></th></tr></thead>
         <tbody>{menu.map(drink => <MenuLinkRow key={`${drink.id}-${drink.source}-${drink.recipeId}-${drink.plannedServings}`} eventId={event.id} recipes={published}
-          drink={{ id: drink.id, name: drink.name, available: drink.available, archivedAt: drink.archivedAt, source: drink.source, pinnedRecipeId: drink.recipeId, recipeInUse: drink.recipeInUse ? refs.get(drink.recipeInUse)?.name ?? null : null, plannedServings: drink.plannedServings, logged: drink.logged, capacity: drink.capacity }} />)}</tbody>
+          drink={{ id: drink.id, name: drink.name, available: drink.available, archivedAt: drink.archivedAt, source: drink.source, pinnedRecipeId: drink.recipeId, recipeInUse: inUse(drink.recipeInUse), plannedServings: drink.plannedServings, logged: drink.logged, capacity: drink.capacity }} />)}</tbody>
       </table></div> : <p className={posStyles.empty}>This event has no drinks yet. <Link className={posStyles.textLink} href={`/admin/pos/${event.id}#menu`}>Add drinks in POS</Link>.</p>}
       {!published.length && <div className={styles.banner}>Nothing is published in the recipe book yet. <Link className={posStyles.textLink} href="/admin/inventory/recipes">Publish a recipe</Link> to track these drinks.</div>}
     </section>
@@ -47,9 +50,11 @@ export default async function EventInventoryPage({ params }: { params: Promise<{
     <section className={posStyles.section} aria-labelledby="plan-heading">
       <h2 id="plan-heading">Shopping list</h2>
       {!planned ? <p className={posStyles.muted}>Enter planned servings above to see what this event needs and what to buy. Plans use each drink’s default choices.</p> : <>
+        <p className={posStyles.muted}>For the drinks still to serve, at each drink’s default choices. Drinks already logged have come off on hand.</p>
         {(plan.unlinked.length > 0 || plan.unpublished.length > 0) && <div className={styles.banner}>Not counted because they have no published recipe: {[...plan.unlinked, ...plan.unpublished].join(', ')}.</div>}
         <p className={styles.summary}>
-          <span><strong>{plan.drinks}</strong> drinks planned</span>
+          <span><strong>{plannedTotal}</strong> planned</span>
+          <span><strong>{plan.drinks}</strong> still to serve</span>
           <span><strong>{plan.short.length}</strong> {plan.short.length === 1 ? 'ingredient' : 'ingredients'} short</span>
           <span><strong>{fmtMoney(plan.cost)}</strong> ingredients{plan.drinks > 0 ? ` (${fmtMoney(plan.cost / plan.drinks)} a drink)` : ''}</span>
         </p>
@@ -72,7 +77,7 @@ export default async function EventInventoryPage({ params }: { params: Promise<{
         <p className={styles.summary}>
           <span><strong>{totalLogged}</strong> drinks logged</span>
           <span><strong>{fmtMoney(used.reduce((sum, row) => sum + row.cost, 0))}</strong> in ingredients</span>
-          {untracked > 0 && <span><strong>{untracked}</strong> not tracked (no published recipe)</span>}
+          {untracked > 0 && <span><strong>{untracked}</strong> not counted against stock</span>}
         </p>
         {used.length > 0 && <details className={posStyles.dataTable}><summary>Ingredients used ({used.length})</summary>
           <div className={styles.tableWrap}><table className={styles.table}>

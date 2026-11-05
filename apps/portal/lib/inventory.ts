@@ -77,6 +77,14 @@ export function workingBody(recipe: RecipeDoc): RecipeBody { return recipe.draft
 export function recipeState(recipe: RecipeDoc): RecipeState { return !recipe.published ? 'unpublished' : recipe.draft ? 'changed' : 'published'; }
 export function recipeName(recipe: RecipeDoc) { return workingBody(recipe).name || 'Untitled recipe'; }
 
+/**
+ * How a POS drink name is compared with recipe names: case, accents, spacing and punctuation are ignored, and any
+ * script counts ("Café Latte" = "cafe latte", "抹茶ラテ" stays distinct from "ほうじ茶ラテ"). Empty means "no name".
+ */
+export function nameKey(name: string) {
+  return String(name || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
 export function slugify(name: string) {
   return String(name || '').toLowerCase().replace(/—|–/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'recipe';
 }
@@ -117,26 +125,27 @@ export function recipeRefs(recipes: ({ id: string } & RecipeDoc)[]) {
 }
 
 export type LinkRow = { menuItemId: string; recipeId: string | null; track: boolean };
-export type LinkSource = 'pinned' | 'auto' | 'off' | 'unmatched';
+export type LinkSource = 'pinned' | 'auto' | 'off' | 'unmatched' | 'ambiguous';
 /**
  * Which recipe each POS drink pours. A pinned recipe wins; `track = false` turns usage off; otherwise the drink uses
  * the published recipe with the same name, so a new event's menu deducts stock without any setup. Names are compared
- * as slugs ("Vanilla latte" matches "Vanilla Latte"); a name shared by two published recipes matches neither.
+ * with `nameKey` ("vanilla latte" matches "Vanilla Latte"); a name shared by two published recipes matches neither.
  */
 export function resolveDrinkRecipes(drinks: { id: string; name: string }[], links: Map<string, LinkRow>, recipes: Map<string, RecipeRef>) {
   const byName = new Map<string, string | null>();
   for (const recipe of recipes.values()) {
     if (!recipe.published) continue;
-    const key = slugify(recipe.published.name);
-    byName.set(key, byName.has(key) ? null : recipe.id);
+    const key = nameKey(recipe.published.name);
+    if (key) byName.set(key, byName.has(key) ? null : recipe.id);
   }
   const resolved: DrinkLinks = new Map(); const source = new Map<string, LinkSource>();
   for (const drink of drinks) {
     const link = links.get(drink.id);
     if (link && !link.track) { resolved.set(drink.id, null); source.set(drink.id, 'off'); continue; }
     if (link?.recipeId) { resolved.set(drink.id, link.recipeId); source.set(drink.id, 'pinned'); continue; }
-    const match = byName.get(slugify(drink.name)) ?? null;
-    resolved.set(drink.id, match); source.set(drink.id, match ? 'auto' : 'unmatched');
+    const key = nameKey(drink.name);
+    const match = key ? byName.get(key) ?? null : null;
+    resolved.set(drink.id, match); source.set(drink.id, match ? 'auto' : key && byName.has(key) ? 'ambiguous' : 'unmatched');
   }
   return { links: resolved, source };
 }
@@ -197,21 +206,23 @@ export function demandRows(totals: Map<string, number>, stock: Map<string, Stock
   }).sort((a, b) => a.item.localeCompare(b.item));
 }
 
-export type PlanDrink = { menuItemId: string; name: string; defaults: Configuration; plannedServings: number };
+export type PlanDrink = { menuItemId: string; name: string; defaults: Configuration; plannedServings: number; logged?: number };
 /**
- * Ingredient demand for an event's planned servings. Configuration is not known before service, so each drink is
- * planned at its menu default choices.
+ * Ingredient demand for the drinks an event still has to serve: planned servings minus those already logged, because
+ * logged drinks have already come off on hand. Configuration is not known before service, so each drink is planned at
+ * its menu default choices.
  */
 export function eventPlan(menu: PlanDrink[], links: DrinkLinks, recipes: Map<string, RecipeRef>, stock: Map<string, StockLine>) {
   const totals = new Map<string, number>();
   const unlinked: string[] = []; const unpublished: string[] = [];
   let drinks = 0;
   for (const drink of menu) {
-    if (drink.plannedServings <= 0) continue;
+    const toServe = Math.max(0, drink.plannedServings - (drink.logged ?? 0));
+    if (toServe <= 0) continue;
     const serving = servingBody(drink.menuItemId, links, recipes);
     if (!serving.body) { (serving.status === 'unlinked' ? unlinked : unpublished).push(drink.name); continue; }
-    drinks += drink.plannedServings;
-    addDrinkUsage(totals, serving.body, drink.defaults, drink.plannedServings);
+    drinks += toServe;
+    addDrinkUsage(totals, serving.body, drink.defaults, toServe);
   }
   const rows = demandRows(totals, stock);
   return { rows, drinks, unlinked, unpublished, short: rows.filter(row => row.known && !row.enough), missing: rows.filter(row => !row.known), cost: rows.reduce((sum, row) => sum + row.cost, 0) };
@@ -320,12 +331,20 @@ export function drinkCostRange(body: RecipeBody, options: Omit<MenuOptions, 'def
   return costs.length ? { min: Math.min(...costs), max: Math.max(...costs) } : { min: 0, max: 0 };
 }
 
+// ---------------------------------------------------------------- import
+// A file can carry only some columns or keys, for example a count sheet with just Item, Supplier, Bag size and Sealed
+// bags. Merging into an existing item touches only what the file provides, so a partial file never resets the rest.
+
+export type ImportFields = { category: boolean; unit: boolean; openAmount: boolean; par: boolean; notes: boolean; sealedBags: boolean; costPerBag: boolean; preferred: boolean };
+export type ImportItem = ItemFields & { provided: ImportFields };
+export const ALL_FIELDS: ImportFields = { category: true, unit: true, openAmount: true, par: true, notes: true, sealedBags: true, costPerBag: true, preferred: true };
+
 // ------------------------------------------------------------------- CSV
 // One row per purchase option, so each supplier and bag size is counted on its own line. Rows sharing an Item name
 // form one ingredient: item-level fields come from its first row and open amounts are summed. The prototype's
 // one-row-per-item sheets, with "Cost per unit" instead of "Cost per bag", still import.
 
-export const CSV_COLUMNS = ['Item', 'Category', 'Unit', 'Supplier', 'Bag size', 'Sealed bags', 'Open bag', 'Qty on hand', 'Par level', 'Cost per bag', 'Cost per unit', 'Notes'] as const;
+export const CSV_COLUMNS = ['Item', 'Category', 'Unit', 'Supplier', 'Bag size', 'Sealed bags', 'Open bag', 'Qty on hand', 'Par level', 'Cost per bag', 'Cost per unit', 'Preferred', 'Notes'] as const;
 const CSV_ALIASES: Record<string, string[]> = { 'Bag size': ['Pack size'], 'Sealed bags': ['Packs on hand', 'Packs'], 'Open bag': ['Loose/open', 'Loose'] };
 const textCell = (value: string) => value.replace(/^([=+@-])/, "'$1");
 function csvCell(value: string | number) { const s = String(value ?? ''); return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s; }
@@ -340,7 +359,7 @@ export function inventoryToCsv(items: ItemFields[]) {
       lines.push([
         textCell(item.name), textCell(item.category), item.unit, textCell(option?.supplier ?? ''), option?.bagSize ?? '', option?.sealedBags ?? '',
         first ? open : '', round((option ? option.bagSize * option.sealedBags : 0) + open), first ? item.par : '',
-        option?.costPerBag ?? '', option ? round(perUnit(option), 6) : '', first ? textCell(item.notes) : '',
+        option?.costPerBag ?? '', option ? round(perUnit(option), 6) : '', option?.preferred ? 'yes' : '', first ? textCell(item.notes) : '',
       ].map(csvCell).join(','));
     });
   }
@@ -369,14 +388,15 @@ export function parseCsv(text: string) {
  */
 export function csvToInventory(text: string) {
   const rows = parseCsv(text); const errors: string[] = [];
-  if (!rows.length) return { items: [] as ItemFields[], errors: ['Nothing to import.'] };
+  if (!rows.length) return { items: [] as ImportItem[], errors: ['Nothing to import.'] };
   const header = rows[0].map(h => h.trim().toLowerCase());
   const col = (name: string) => [name, ...(CSV_ALIASES[name] ?? [])].map(n => header.indexOf(n.toLowerCase())).find(at => at >= 0) ?? -1;
   const nameAt = col('Item');
-  if (nameAt < 0) return { items: [], errors: ['No "Item" column found. Keep the header row from the export.'] };
-  const at = { category: col('Category'), unit: col('Unit'), supplier: col('Supplier'), bagSize: col('Bag size'), sealedBags: col('Sealed bags'), openBag: col('Open bag'), par: col('Par level'), costPerBag: col('Cost per bag'), costPerUnit: col('Cost per unit'), notes: col('Notes') };
+  if (nameAt < 0) return { items: [] as ImportItem[], errors: ['No "Item" column found. Keep the header row from the export.'] };
+  const at = { category: col('Category'), unit: col('Unit'), supplier: col('Supplier'), bagSize: col('Bag size'), sealedBags: col('Sealed bags'), openBag: col('Open bag'), par: col('Par level'), costPerBag: col('Cost per bag'), costPerUnit: col('Cost per unit'), preferred: col('Preferred'), notes: col('Notes') };
   const get = (r: string[], i: number) => (i >= 0 && r[i] !== undefined ? r[i].trim().replace(/^'([=+@-])/, '$1') : '');
-  const byName = new Map<string, ItemFields>(); const rejected = new Set<string>();
+  const provided: ImportFields = { category: at.category >= 0, unit: at.unit >= 0, openAmount: at.openBag >= 0, par: at.par >= 0, notes: at.notes >= 0, sealedBags: at.sealedBags >= 0, costPerBag: at.costPerBag >= 0 || at.costPerUnit >= 0, preferred: at.preferred >= 0 };
+  const byName = new Map<string, ImportItem>(); const rejected = new Set<string>();
   rows.slice(1).forEach((r, index) => {
     const name = get(r, nameAt); if (!name || rejected.has(name)) return;
     const reject = (message: string) => { errors.push(`Row ${index + 2} (${name}): ${message}`); rejected.add(name); byName.delete(name); };
@@ -388,7 +408,7 @@ export function csvToInventory(text: string) {
     let item = byName.get(name);
     if (!item) {
       const category = get(r, at.category);
-      item = { name, unit: unit as ItemFields['unit'], category: (itemCategories as readonly string[]).includes(category) ? category as ItemFields['category'] : 'Other', openAmount: 0, par: finite(numbers.par), notes: get(r, at.notes), packages: [] };
+      item = { name, unit: unit as ItemFields['unit'], category: (itemCategories as readonly string[]).includes(category) ? category as ItemFields['category'] : 'Other', openAmount: 0, par: finite(numbers.par), notes: get(r, at.notes), packages: [], provided };
       byName.set(name, item);
     } else if (item.unit !== unit) return reject(`unit "${unit}" differs from this item's earlier rows.`);
     item.openAmount = round(item.openAmount + finite(numbers.openBag));
@@ -397,7 +417,9 @@ export function csvToInventory(text: string) {
     const supplier = get(r, at.supplier);
     if (item.packages.some(option => packageKey(option.supplier, option.bagSize) === packageKey(supplier, bagSize))) return reject(`the purchase option "${supplier || 'no supplier'}, ${bagSize}" appears more than once.`);
     const costPerBag = numbers.costPerBag !== '' ? finite(numbers.costPerBag) : round(finite(numbers.costPerUnit) * bagSize, 4);
-    item.packages.push({ supplier, bagSize, costPerBag, sealedBags: finite(numbers.sealedBags), preferred: false });
+    const preferred = /^(yes|y|true|1|x)$/i.test(get(r, at.preferred));
+    if (preferred && item.packages.some(option => option.preferred)) return reject('more than one purchase option is marked preferred.');
+    item.packages.push({ supplier, bagSize, costPerBag, sealedBags: finite(numbers.sealedBags), preferred });
   });
   return { items: [...byName.values()], errors };
 }
@@ -435,9 +457,10 @@ export function buildBundle(items: ItemFields[], equipment: EquipmentFields[], r
 
 // A prototype row becomes one ingredient with one purchase option; a portal row brings its own `packages` list.
 const bundleInventorySchema = bundleItemSchema.transform((row, context): ItemFields => {
+  const bagSize = row.bagSize ?? 0;
   const item = itemFieldsSchema.safeParse({
-    name: row.name, category: row.category, unit: row.unit, openAmount: row.openBag, par: row.par, notes: row.notes,
-    packages: row.packages ?? (row.bagSize > 0 ? [{ supplier: row.supplier, bagSize: row.bagSize, costPerBag: row.costPerBag ?? round(row.costPerUnit * row.bagSize, 4), sealedBags: row.sealedBags, preferred: false }] : []),
+    name: row.name, category: row.category, unit: row.unit, openAmount: row.openBag ?? 0, par: row.par ?? 0, notes: row.notes,
+    packages: row.packages ?? (bagSize > 0 ? [{ supplier: row.supplier, bagSize, costPerBag: row.costPerBag ?? round((row.costPerUnit ?? 0) * bagSize, 4), sealedBags: row.sealedBags ?? 0, preferred: false }] : []),
   });
   if (item.success) return item.data;
   for (const issue of item.error.issues) context.addIssue({ code: 'custom', message: issue.message });
@@ -468,8 +491,15 @@ export function readBundle(parsed: unknown) {
     });
     return out;
   };
-  const inventory = take(value.inventory, 'inventory', bundleInventorySchema, row => row.name);
-  const equipment = take(value.equipment, 'equipment', bundleEquipmentSchema, row => row.name);
+  // Which keys each row really has, so a merge leaves out what the file does not mention.
+  const keysOf = (rows: unknown[] | undefined) => new Map((rows ?? []).flatMap(row => row && typeof row === 'object' && 'name' in row && typeof row.name === 'string' ? [[row.name.trim(), new Set(Object.keys(row))] as const] : []));
+  const itemKeys = keysOf(value.inventory); const equipmentKeys = keysOf(value.equipment);
+  const inventory: ImportItem[] = take(value.inventory, 'inventory', bundleInventorySchema, row => row.name).map(item => {
+    const has = (...keys: string[]) => keys.some(key => itemKeys.get(item.name)?.has(key));
+    return { ...item, provided: { category: has('category'), unit: true, openAmount: has('openBag'), par: has('par'), notes: has('notes'), sealedBags: has('sealedBags', 'packages'), costPerBag: has('costPerBag', 'costPerUnit', 'packages'), preferred: has('packages') } };
+  });
+  const equipment = take(value.equipment, 'equipment', bundleEquipmentSchema, row => row.name)
+    .map(row => ({ ...row, provided: new Set([...(equipmentKeys.get(row.name) ?? [])].filter(key => key in row)) as Set<keyof EquipmentFields> }));
   const recipes: BundleRecipe[] = take(value.recipes, 'recipe', bundleRecipeSchema, row => row.slug ? slugify(row.slug) : slugify(row.name))
     .map(row => ({ slug: row.slug ? slugify(row.slug) : slugify(row.name), status: row.status, body: { name: row.name, category: row.category, ingredients: row.ingredients, steps: row.steps, notes: row.notes } }));
   return { ok: true as const, inventory, equipment, recipes, skipped, guidelines: value.guidelines?.length ?? 0 };
