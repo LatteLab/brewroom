@@ -107,33 +107,6 @@ export function addDrinkUsage(totals: Map<string, number>, body: RecipeBody, con
   return totals;
 }
 
-export type CheckRow = { item: string; note: string; when: Ingredient['when']; scale: Ingredient['scale']; unit: string; perServing: number; needed: number; onHand: number | null; known: boolean; enough: boolean; short: number; cost: number; allows: number | null };
-/**
- * Scale a recipe card and check it against stock. Conditional and scaled lines are shown at their full amount,
- * because a card is not one configuration; "stock supports" uses only lines every drink needs.
- */
-export function checkRecipe(body: RecipeBody, servings: number, stock: Map<string, { unit: string; onHand: number; costPerUnit: number }>) {
-  const n = Math.max(0, finite(servings));
-  const rows: CheckRow[] = body.ingredients.map(ingredient => {
-    const item = stock.get(ingredient.item) ?? null;
-    const needed = round(ingredient.qty * n);
-    const known = item !== null; const onHand = item ? item.onHand : null;
-    const enough = known && (onHand ?? 0) >= needed;
-    return {
-      item: ingredient.item, note: ingredient.note, when: ingredient.when, scale: ingredient.scale,
-      unit: item?.unit ?? ingredient.unit, perServing: ingredient.qty, needed, onHand, known, enough,
-      short: known && !enough ? round(needed - (onHand ?? 0)) : 0,
-      cost: item ? needed * item.costPerUnit : 0,
-      allows: item && ingredient.qty > 0 && ingredient.when === 'always' ? Math.max(0, Math.floor(item.onHand / ingredient.qty)) : null,
-    };
-  });
-  const allows = rows.map(row => row.allows).filter((value): value is number => value !== null);
-  return {
-    rows, missing: rows.filter(row => !row.known), short: rows.filter(row => row.known && !row.enough),
-    cost: rows.reduce((sum, row) => sum + row.cost, 0), maxServings: allows.length ? Math.min(...allows) : null,
-  };
-}
-
 // ----------------------------------------------------- POS synchronization
 
 export type UsageLog = { menuItemId: string; configuration: Configuration; quantity: number; recordedAt: Date | string };
@@ -259,42 +232,92 @@ export function configurationsFor(options: Omit<MenuOptions, 'defaults'>): Confi
   return out;
 }
 
-export type DrinkLimit = { item: string; unit: string; onHand: number; perDrink: number; drinksLeft: number; when: Ingredient['when'] };
-/**
- * How many more of one drink current stock allows. Each ingredient is taken at its largest per-drink amount over the
- * drink's allowed choices, so the figure is cautious: "at most N more if every order used it". Each drink is assessed
- * as if it had the stock to itself; shared ingredients such as beans run down for every drink at once.
- */
-export function drinkCapacity(body: RecipeBody, options: Omit<MenuOptions, 'defaults'>, stock: Map<string, { unit: string; onHand: number }>) {
+export type DrinkLimit = { item: string; unit: string; onHand: number; perDrink: number; drinksLeft: number };
+export type CapacityGroup = { label: string; drinksLeft: number; limits: DrinkLimit[] };
+export type DrinkCapacity = { drinksLeft: number | null; groups: CapacityGroup[]; missing: string[] };
+const milkLabel = { Whole: 'whole milk', Oat: 'oat milk' } as const;
+const temperatureLabel = { Hot: 'hot', Iced: 'iced' } as const;
+
+/** Per-ingredient drinks left for a set of configurations, each ingredient at its largest amount among them. */
+function limitsFor(body: RecipeBody, configurations: Configuration[], stock: Map<string, { unit: string; onHand: number }>) {
   const perDrink = new Map<string, number>();
-  for (const configuration of configurationsFor(options)) {
+  for (const configuration of configurations) {
     for (const [item, amount] of addDrinkUsage(new Map(), body, configuration, 1)) perDrink.set(item, Math.max(perDrink.get(item) ?? 0, amount));
   }
-  // An item on several lines with different conditions is reported as used by every drink.
-  const when = new Map<string, Ingredient['when']>();
-  for (const line of body.ingredients) when.set(line.item, when.has(line.item) && when.get(line.item) !== line.when ? 'always' : line.when);
   const limits: DrinkLimit[] = []; const missing: string[] = [];
   for (const [item, amount] of perDrink) {
     const line = stock.get(item);
     if (!line) { missing.push(item); continue; }
-    limits.push({ item, unit: line.unit, onHand: line.onHand, perDrink: amount, drinksLeft: Math.floor(round(Math.max(0, line.onHand) / amount, 6)), when: when.get(item) ?? 'always' });
+    limits.push({ item, unit: line.unit, onHand: line.onHand, perDrink: amount, drinksLeft: Math.floor(round(Math.max(0, line.onHand) / amount, 6)) });
   }
-  limits.sort((a, b) => a.drinksLeft - b.drinksLeft || a.item.localeCompare(b.item));
-  return { drinksLeft: limits.length ? limits[0].drinksLeft : null, limits, missing };
+  return { limits: limits.sort((a, b) => a.drinksLeft - b.drinksLeft || a.item.localeCompare(b.item)), missing };
 }
 
-export type DrinkWarning = { menuItemId: string; name: string; drinksLeft: number; limits: DrinkLimit[] };
-/** Drinks that can be made `threshold` or fewer more times, with every ingredient that holds them there. */
-export function drinkWarnings(drinks: { id: string; name: string; options: Omit<MenuOptions, 'defaults'> }[], links: DrinkLinks, recipes: Map<string, RecipeRef>, stock: Map<string, StockLine>, threshold = DRINKS_LEFT_WARNING): DrinkWarning[] {
-  const warnings: DrinkWarning[] = [];
+/**
+ * How many more of one drink current stock makes, by drink type. Types are temperature × milk; within a type each
+ * ingredient is taken at its largest amount (100% syrup, full ice), so figures are cautious. Types with the same
+ * answer are merged, so a drink limited only by milk reads "9 with oat milk · 15 with whole milk". Each drink is
+ * assessed as if it had the stock to itself; ingredients shared between drinks run down for all of them at once.
+ */
+export function drinkCapacity(body: RecipeBody, options: Omit<MenuOptions, 'defaults'>, stock: Map<string, { unit: string; onHand: number }>): DrinkCapacity {
+  const all = configurationsFor(options);
+  const types = options.temperatures.flatMap(temperature => options.milks.map(milk => ({ temperature, milk })));
+  const counts = types.map(type => ({ ...type, ...limitsFor(body, all.filter(c => c.temperature === type.temperature && c.milk === type.milk), stock) }))
+    .map(type => ({ ...type, drinksLeft: type.limits[0]?.drinksLeft ?? null }));
+  const missing = limitsFor(body, all, stock).missing;
+  if (counts.every(type => type.drinksLeft === null)) return { drinksLeft: null, groups: [], missing };
+  const same = (key: (t: (typeof counts)[number]) => string) => counts.every(a => counts.every(b => key(a) !== key(b) || a.drinksLeft === b.drinksLeft));
+  const keyOf: (t: (typeof counts)[number]) => string =
+    counts.every(t => t.drinksLeft === counts[0].drinksLeft) ? () => ''
+      : same(t => t.milk) && options.milks.length > 1 ? t => milkLabel[t.milk]
+        : same(t => t.temperature) && options.temperatures.length > 1 ? t => temperatureLabel[t.temperature]
+          : t => `${temperatureLabel[t.temperature]}, ${milkLabel[t.milk]}`;
+  const groups = new Map<string, CapacityGroup>();
+  for (const type of counts) {
+    if (type.drinksLeft === null) continue;
+    const label = keyOf(type); const group = groups.get(label);
+    if (!group) { groups.set(label, { label, drinksLeft: type.drinksLeft, limits: type.limits }); continue; }
+    // Merge: keep each ingredient's lowest figure across the merged types.
+    const byItem = new Map(group.limits.map(limit => [limit.item, limit]));
+    for (const limit of type.limits) if (!byItem.has(limit.item) || limit.drinksLeft < byItem.get(limit.item)!.drinksLeft) byItem.set(limit.item, limit);
+    group.limits = [...byItem.values()].sort((a, b) => a.drinksLeft - b.drinksLeft || a.item.localeCompare(b.item));
+    group.drinksLeft = Math.min(group.drinksLeft, type.drinksLeft);
+  }
+  const sorted = [...groups.values()].sort((a, b) => a.drinksLeft - b.drinksLeft || a.label.localeCompare(b.label));
+  return { drinksLeft: sorted[0].drinksLeft, groups: sorted, missing };
+}
+
+/** Capacity for every drink that pours a published recipe, keyed by menu item. */
+export function drinkCapacities(drinks: { id: string; options: Omit<MenuOptions, 'defaults'> }[], links: DrinkLinks, recipes: Map<string, RecipeRef>, stock: Map<string, StockLine>) {
+  const out = new Map<string, DrinkCapacity>();
   for (const drink of drinks) {
     const serving = servingBody(drink.id, links, recipes);
-    if (!serving.body) continue;
-    const capacity = drinkCapacity(serving.body, drink.options, stock);
-    if (capacity.drinksLeft === null || capacity.drinksLeft > threshold) continue;
-    warnings.push({ menuItemId: drink.id, name: drink.name, drinksLeft: capacity.drinksLeft, limits: capacity.limits.filter(limit => limit.drinksLeft <= threshold) });
+    if (serving.body) out.set(drink.id, drinkCapacity(serving.body, drink.options, stock));
+  }
+  return out;
+}
+
+export type DrinkWarning = { menuItemId: string; name: string; drinksLeft: number; groups: CapacityGroup[] };
+/**
+ * Drinks with a type stock can make `threshold` or fewer more of. Each warned type lists every ingredient at or under
+ * the threshold, so a second ingredient about to run out is not hidden behind the first.
+ */
+export function drinkWarnings(drinks: { id: string; name: string; options: Omit<MenuOptions, 'defaults'> }[], links: DrinkLinks, recipes: Map<string, RecipeRef>, stock: Map<string, StockLine>, threshold = DRINKS_LEFT_WARNING): DrinkWarning[] {
+  const capacities = drinkCapacities(drinks, links, recipes, stock);
+  const warnings: DrinkWarning[] = [];
+  for (const drink of drinks) {
+    const capacity = capacities.get(drink.id);
+    if (!capacity || capacity.drinksLeft === null || capacity.drinksLeft > threshold) continue;
+    const groups = capacity.groups.filter(group => group.drinksLeft <= threshold).map(group => ({ ...group, limits: group.limits.filter(limit => limit.drinksLeft <= threshold) }));
+    warnings.push({ menuItemId: drink.id, name: drink.name, drinksLeft: capacity.drinksLeft, groups });
   }
   return warnings.sort((a, b) => a.drinksLeft - b.drinksLeft || a.name.localeCompare(b.name));
+}
+
+/** Cheapest and dearest ingredient cost of one drink over its allowed choices. */
+export function drinkCostRange(body: RecipeBody, options: Omit<MenuOptions, 'defaults'>, stock: Map<string, { costPerUnit: number }>) {
+  const costs = configurationsFor(options).map(configuration => [...addDrinkUsage(new Map(), body, configuration, 1)].reduce((sum, [item, amount]) => sum + amount * (stock.get(item)?.costPerUnit ?? 0), 0));
+  return costs.length ? { min: Math.min(...costs), max: Math.max(...costs) } : { min: 0, max: 0 };
 }
 
 // ------------------------------------------------------------------- CSV

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  DRINKS_LEFT_WARNING, buildBundle, checkRecipe, configurationsFor, countedQuantity, csvToInventory, demandRows, drinkCapacity, drinkWarnings, eventPlan, ingredientAmount,
+  DRINKS_LEFT_WARNING, buildBundle, configurationsFor, countedQuantity, csvToInventory, demandRows, drinkCapacity, drinkCostRange, drinkWarnings, eventPlan, ingredientAmount,
   inventoryToCsv, readBundle, reorderOption, resolveDrinkRecipes, slugify, stockMap, stockStatus, unitCost, usageFromLogs,
   type LinkRow, type RecipeRef,
 } from '../lib/inventory';
@@ -122,33 +122,47 @@ test('event plans use each drink default, total demand and buy whole bags of the
   assert.equal(demandRows(new Map([['Espresso beans', 10]]), stock)[0].enough, true);
 });
 
-test('recipe cards report the servings stock supports from lines every drink needs', () => {
-  const stock = new Map([['Espresso beans', { unit: 'g', onHand: 100, costPerUnit: 0.02 }], ['Oat milk', { unit: 'ml', onHand: 0, costPerUnit: 0 }]]);
-  const check = checkRecipe(latte, 10, stock);
-  assert.equal(check.maxServings, 5, 'conditional oat milk does not cap the card');
-  assert.equal(check.short.length, 2);
-  assert.equal(check.missing.length, 5);
+test('drinks you can make are reported by the choices that matter, with what runs out first', () => {
+  assert.equal(configurationsFor(defaultMenuOptions).length, 2 * 3 * 3 + 2 * 3, 'iced has three ice levels, hot has none');
+  const unitOf = (name: string) => name === 'Ice' || name === 'Espresso beans' ? 'g' : name.includes('cups') ? 'each' : 'ml';
+  const stockOf = (amounts: Record<string, number>) => stockMap(Object.entries(amounts).map(([name, amount]) => onHand(name, unitOf(name), amount)));
+  const plenty = { 'Espresso beans': 18 * 300, 'Pumpkin syrup': 30 * 300, Ice: 150 * 300, 'Hot cups': 300, 'Cold cups': 300 };
+
+  // Only the milk differs, so the answer is given per milk.
+  const byMilk = drinkCapacity(latte, defaultMenuOptions, stockOf({ ...plenty, 'Whole milk': 3000, 'Oat milk': 1800 }));
+  assert.deepEqual(byMilk.groups.map(g => [g.label, g.drinksLeft, g.limits[0].item]), [['oat milk', 9, 'Oat milk'], ['whole milk', 15, 'Whole milk']]);
+  assert.equal(byMilk.drinksLeft, 9);
+
+  // Every choice allows the same: one unlabelled figure.
+  const same = drinkCapacity(latte, defaultMenuOptions, stockOf({ ...plenty, 'Espresso beans': 18 * 40, 'Whole milk': 1e6, 'Oat milk': 1e6 }));
+  assert.deepEqual(same.groups.map(g => [g.label, g.drinksLeft]), [['', 40]]);
+
+  // Temperature and milk both matter: one figure per type, syrup taken at 100% and ice at full.
+  const mixed = drinkCapacity(latte, defaultMenuOptions, stockOf({ ...plenty, 'Whole milk': 20000, 'Oat milk': 3950, 'Pumpkin syrup': 600, 'Cold cups': 3 }));
+  assert.deepEqual(mixed.groups.map(g => [g.label, g.drinksLeft]), [['iced, oat milk', 3], ['iced, whole milk', 3], ['hot, oat milk', 19], ['hot, whole milk', 20]]);
+  assert.equal(drinkCapacity(latte, defaultMenuOptions, stockMap([onHand('Espresso beans', 'g', -40)])).drinksLeft, 0, 'an overdrawn estimate means none left');
+  assert.equal(drinkCapacity(latte, defaultMenuOptions, new Map()).drinksLeft, null);
+
+  const cost = drinkCostRange(latte, defaultMenuOptions, new Map([['Espresso beans', { costPerUnit: 0.02 }], ['Oat milk', { costPerUnit: 0.004 }], ['Pumpkin syrup', { costPerUnit: 0.01 }]]));
+  assert.deepEqual([cost.min, cost.max].map(v => Math.round(v * 1000) / 1000), [0.51, 1.46], 'cheapest: whole milk (free here) at 50% syrup; dearest: oat milk at 100%');
 });
 
-test('drinks left: warn at 20 or fewer, naming every limiting ingredient at its largest per-drink amount', () => {
-  assert.equal(configurationsFor(defaultMenuOptions).length, 2 * 3 * 3 + 2 * 3, 'iced has three ice levels, hot has none');
+test('warnings flag each drink type at 20 or fewer, with every ingredient at or under 20', () => {
   const stock = stockMap([
-    onHand('Espresso beans', 'g', 18 * 300), onHand('Whole milk', 'ml', 200 * 100), onHand('Oat milk', 'ml', 200 * 19 + 150),
-    onHand('Pumpkin syrup', 'ml', 30 * 20), onHand('Ice', 'g', 150 * 500), onHand('Hot cups', 'each', 500), onHand('Cold cups', 'each', 3),
+    onHand('Espresso beans', 'g', 18 * 300), onHand('Whole milk', 'ml', 20000), onHand('Oat milk', 'ml', 3950),
+    onHand('Pumpkin syrup', 'ml', 600), onHand('Ice', 'g', 150 * 500), onHand('Hot cups', 'each', 500), onHand('Cold cups', 'each', 3),
   ]);
-  const capacity = drinkCapacity(latte, defaultMenuOptions, stock);
-  assert.equal(capacity.drinksLeft, 3);
-  assert.deepEqual(capacity.limits.slice(0, 3).map(limit => [limit.item, limit.drinksLeft, limit.when]), [['Cold cups', 3, 'iced'], ['Oat milk', 19, 'oat'], ['Pumpkin syrup', 20, 'always']], 'syrup is taken at 100%, ice at full');
-
   const recipes = new Map<string, RecipeRef>([['r1', { id: 'r1', name: 'PSL', published: latte }]]);
   const drinks = [{ id: 'm1', name: 'PSL', options: defaultMenuOptions }, { id: 'm2', name: 'PSL hot only', options: { ...defaultMenuOptions, temperatures: ['Hot' as const], milks: ['Whole' as const] } }, { id: 'm3', name: 'Unlinked', options: defaultMenuOptions }];
   const warnings = drinkWarnings(drinks, new Map([['m1', 'r1'], ['m2', 'r1'], ['m3', null]]), recipes, stock);
-  assert.deepEqual(warnings.map(w => [w.name, w.drinksLeft, w.limits.map(l => l.item)]), [['PSL', 3, ['Cold cups', 'Oat milk', 'Pumpkin syrup']], ['PSL hot only', 20, ['Pumpkin syrup']]], 'a hot whole-milk drink is not limited by cold cups or oat milk');
+  assert.deepEqual(warnings.map(w => [w.name, w.drinksLeft]), [['PSL', 3], ['PSL hot only', 20]]);
+  assert.deepEqual(warnings[0].groups.map(g => [g.label, g.limits.map(l => l.item)]), [
+    ['iced, oat milk', ['Cold cups', 'Oat milk', 'Pumpkin syrup']], ['iced, whole milk', ['Cold cups', 'Pumpkin syrup']],
+    ['hot, oat milk', ['Oat milk', 'Pumpkin syrup']], ['hot, whole milk', ['Pumpkin syrup']],
+  ]);
+  assert.deepEqual(warnings[1].groups.map(g => [g.label, g.limits.map(l => l.item)]), [['', ['Pumpkin syrup']]], 'a hot whole-milk drink is not limited by cold cups or oat milk');
   assert.equal(DRINKS_LEFT_WARNING, 20);
   assert.equal(drinkWarnings(drinks, new Map([['m2', 'r1']]), recipes, stock, 19).length, 0, 'exactly 20 left warns only at the default threshold');
-  const out = drinkCapacity(latte, defaultMenuOptions, stockMap([onHand('Espresso beans', 'g', -40)]));
-  assert.equal(out.drinksLeft, 0, 'an overdrawn estimate means none left');
-  assert.equal(out.missing.length, 6);
 });
 
 test('inventory CSV has one row per purchase option, round-trips, and still reads prototype sheets', () => {

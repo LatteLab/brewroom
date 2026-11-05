@@ -23,6 +23,12 @@ Date: November 5, 2026. Implements the [design](design.md). Paths are relative t
 - [x] `drinkCapacity` / `drinkWarnings` and `DrinkWarnings`: warning at 20 or fewer, on the kiosk (`notice` prop, errors caught), event page and Stock page.
 - [x] CSV with one row per purchase option; bundle keeps the prototype single-bag shape and adds `costPerBag` and `packages`.
 
+## Follow-up: end-to-end run, drinks-you-can-make, decluttering
+
+- [x] Ran the whole workflow in the browser on an empty disposable database: seven items with purchase options, a seven-line recipe published from the editor, a POS event and drink created in POS, four kiosk orders and one removal. Every item's on-hand matched a hand calculation after the orders and after the removal.
+- [x] `drinkCapacity` reports drinks left per drink type with the first ingredient to run out; shown on the event page, the Stock page (current or next event) and recipe cards, and used by the warnings.
+- [x] Decluttered: one-line summaries instead of stat grids, empty sections collapse to a sentence, a five-column stock table, and the recipe card's misleading batch scaler removed.
+
 ## Verification record
 
 - After the follow-up: `test:inventory` 10 pass, `test:inventory:db` 8 pass, `test:pos` 8 pass, `test:pos:db` 17 pass. Lint has no errors (5 existing warnings). Migration and `drizzle-kit push` DDL match. The real prototype bundle converts with identical quantities and costs per unit. In the browser, a drink named like a recipe deducted with no setup, a count of 3,000 ml whole milk raised "About 15 Vanilla Latte left" on the Stock page and kiosk, and logging one drink in the kiosk changed it to 14.

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from './index';
 import { inventoryEquipment, inventoryItemPackages, inventoryItems, inventoryMenuLinks, inventoryRecipes, posDrinkLogs, posEvents, posMenuItems, type InventoryItem, type InventoryItemPackage, type InventoryRecipe } from './schema';
 import {
-  InventoryError, countedQuantity, drinkWarnings, readBundle, recipeRefs, resolveDrinkRecipes, slugify, stockMap, usageFromLogs, workingBody,
+  InventoryError, countedQuantity, drinkCapacities, drinkWarnings, readBundle, recipeRefs, resolveDrinkRecipes, slugify, stockMap, usageFromLogs, workingBody,
   type LinkRow, type UsageLog,
 } from '../inventory';
 import type { PosActor } from '../pos';
@@ -93,14 +93,22 @@ async function stockWithUsage(tx: Tx) {
 }
 export type StockRow = Awaited<ReturnType<typeof stockWithUsage>>['items'][number];
 
-/** Drinks on these POS events' menus that stock can make 20 or fewer more of. Removed and unavailable drinks are skipped. */
-async function warningsFor(tx: Tx, eventIds: string[], stock: Awaited<ReturnType<typeof stockWithUsage>>) {
-  if (!eventIds.length) return [];
+/**
+ * What stock can make of the drinks on these POS events' menus, and which are running low (20 or fewer left).
+ * Removed and temporarily unavailable drinks are skipped.
+ */
+async function menuCapacity(tx: Tx, eventIds: string[], stock: Awaited<ReturnType<typeof stockWithUsage>>) {
+  if (!eventIds.length) return { drinks: [], warnings: [] };
   const menu = await tx.select({ id: posMenuItems.id, eventId: posMenuItems.eventId, name: posMenuItems.name, options: posMenuItems.options })
-    .from(posMenuItems).where(and(inArray(posMenuItems.eventId, eventIds), isNull(posMenuItems.archivedAt), eq(posMenuItems.available, true)));
+    .from(posMenuItems).where(and(inArray(posMenuItems.eventId, eventIds), isNull(posMenuItems.archivedAt), eq(posMenuItems.available, true))).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
   const { links } = resolveDrinkRecipes(menu, await linkRows(tx, menu.map(drink => drink.id)), stock.refs);
+  const lines = stockMap(stock.items);
+  const capacities = drinkCapacities(menu, links, stock.refs, lines);
   const eventOf = new Map(menu.map(drink => [drink.id, drink.eventId]));
-  return drinkWarnings(menu, links, stock.refs, stockMap(stock.items)).map(warning => ({ ...warning, eventId: eventOf.get(warning.menuItemId)! }));
+  return {
+    drinks: menu.flatMap(drink => { const capacity = capacities.get(drink.id); return capacity ? [{ id: drink.id, eventId: drink.eventId, name: drink.name, capacity }] : []; }),
+    warnings: drinkWarnings(menu, links, stock.refs, lines).map(warning => ({ ...warning, eventId: eventOf.get(warning.menuItemId)! })),
+  };
 }
 
 export async function getInventoryStock(actor: PosActor) {
@@ -108,16 +116,22 @@ export async function getInventoryStock(actor: PosActor) {
   return db.transaction(async tx => {
     const stock = await stockWithUsage(tx);
     // Warn for every event that has not ended yet, so a shortage shows before service as well as during it.
-    const live = await tx.select({ id: posEvents.id, name: posEvents.name }).from(posEvents).where(sql`${posEvents.endsAt} > now()`).orderBy(asc(posEvents.startsAt));
+    const live = await tx.select({ id: posEvents.id, name: posEvents.name, startsAt: posEvents.startsAt }).from(posEvents).where(sql`${posEvents.endsAt} > now()`).orderBy(asc(posEvents.startsAt));
     const names = new Map(live.map(event => [event.id, event.name]));
-    const warnings = (await warningsFor(tx, live.map(event => event.id), stock)).map(warning => ({ ...warning, eventName: names.get(warning.eventId) ?? '' }));
-    return { items: stock.items, warnings };
+    const { drinks, warnings } = await menuCapacity(tx, live.map(event => event.id), stock);
+    // The current or next event is the one whose drinks the stock page summarises.
+    const next = live.find(event => drinks.some(drink => drink.eventId === event.id)) ?? null;
+    return {
+      items: stock.items,
+      warnings: warnings.map(warning => ({ ...warning, eventName: names.get(warning.eventId) ?? '' })),
+      nextEvent: next ? { ...next, drinks: drinks.filter(drink => drink.eventId === next.id) } : null,
+    };
   }, readOnly);
 }
 /** Drink warnings for one POS event, for the kiosk. */
 export async function getDrinkWarnings(actor: PosActor, eventId: string) {
   admin(actor); const id = uuid(eventId);
-  return db.transaction(async tx => warningsFor(tx, [id], await stockWithUsage(tx)), readOnly);
+  return db.transaction(async tx => (await menuCapacity(tx, [id], await stockWithUsage(tx))).warnings, readOnly);
 }
 export async function listRecipes(actor: PosActor) {
   admin(actor);
@@ -173,13 +187,15 @@ export async function getEventInventory(actor: PosActor, eventId: string) {
     for (const log of logs) loggedBy.set(log.menuItemId, (loggedBy.get(log.menuItemId) ?? 0) + log.quantity);
     const rows = new Map(menu.filter(drink => drink.track !== null).map(drink => [drink.id, { menuItemId: drink.id, recipeId: drink.recipeId, track: drink.track! }]));
     const { links, source } = resolveDrinkRecipes(menu, rows, stock.refs);
+    const capacity = await menuCapacity(tx, [id], stock);
+    const capacityOf = new Map(capacity.drinks.map(drink => [drink.id, drink.capacity]));
     return {
       event, items: stock.items, recipes: stock.recipes, refs: stock.refs, logs, links,
-      warnings: await warningsFor(tx, [id], stock),
+      warnings: capacity.warnings,
       // Removed drinks stay listed only while they have valid orders, so their usage can still be attributed.
       menu: menu.filter(drink => !drink.archivedAt || loggedBy.has(drink.id)).map(drink => ({
         ...drink, plannedServings: drink.plannedServings ?? 0, logged: loggedBy.get(drink.id) ?? 0,
-        source: source.get(drink.id)!, recipeInUse: links.get(drink.id) ?? null,
+        source: source.get(drink.id)!, recipeInUse: links.get(drink.id) ?? null, capacity: capacityOf.get(drink.id) ?? null,
       })),
     };
   }, readOnly);

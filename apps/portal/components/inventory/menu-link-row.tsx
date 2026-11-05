@@ -3,11 +3,12 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveMenuLinkAction } from '@/app/actions/inventory';
-import type { LinkSource } from '@/lib/inventory';
+import type { DrinkCapacity, LinkSource } from '@/lib/inventory';
+import { CapacitySummary } from './capacity';
 import posStyles from '../pos/pos.module.css';
 import styles from './inventory.module.css';
 
-type Drink = { id: string; name: string; available: boolean; archivedAt: Date | null; source: LinkSource; pinnedRecipeId: string | null; recipeInUse: string | null; plannedServings: number; logged: number; defaults: string };
+type Drink = { id: string; name: string; available: boolean; archivedAt: Date | null; source: LinkSource; pinnedRecipeId: string | null; recipeInUse: string | null; plannedServings: number; logged: number; capacity: DrinkCapacity | null };
 const choiceFor = (drink: Drink) => drink.source === 'off' ? 'none' : drink.source === 'pinned' ? drink.pinnedRecipeId! : 'auto';
 
 export function MenuLinkRow({ eventId, drink, recipes }: { eventId: string; drink: Drink; recipes: { id: string; name: string }[] }) {
@@ -18,17 +19,17 @@ export function MenuLinkRow({ eventId, drink, recipes }: { eventId: string; drin
   const dirty = choice !== choiceFor(drink) || planned !== drink.plannedServings;
   const status = drink.source === 'off' ? 'Not tracked' : drink.recipeInUse ? `Using “${drink.recipeInUse}”` : drink.source === 'pinned' ? 'Pinned recipe is not published' : 'No published recipe with this name';
   return <tr>
-    <td>{drink.name}
-      <span className={styles.sub}>{drink.archivedAt ? 'Removed from the POS menu' : drink.available ? 'On the POS menu' : 'Temporarily unavailable'} · planned at {drink.defaults}</span>
-    </td>
-    <td data-label="Recipe"><select aria-label={`Recipe for ${drink.name}`} value={choice} disabled={pending} onChange={e => setChoice(e.target.value)}>
+    <td>{drink.name}{(drink.archivedAt || !drink.available) && <span className={styles.sub}>{drink.archivedAt ? 'Removed from the menu' : 'Unavailable'}</span>}</td>
+    <td data-label="Recipe"><div><select aria-label={`Recipe for ${drink.name}`} value={choice} disabled={pending} onChange={e => setChoice(e.target.value)}>
       <option value="auto">Match by name{drink.source === 'auto' && drink.recipeInUse ? ` (${drink.recipeInUse})` : ''}</option>
       {pinnedMissing && <option value={drink.pinnedRecipeId!}>Pinned recipe (unpublished)</option>}
       {recipes.map(recipe => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}
       <option value="none">Don’t track this drink</option>
-    </select><span className={styles.sub}>{status}</span></td>
-    <td data-label="Planned" className={styles.r}><input type="number" min={0} step={1} inputMode="numeric" aria-label={`Planned servings of ${drink.name}`} value={planned} disabled={pending} onChange={e => setPlanned(Math.max(0, Math.floor(e.target.valueAsNumber || 0)))} /></td>
-    <td data-label="Logged in POS" className={styles.r}><strong>{drink.logged}</strong>{planned > 0 && <span className={styles.sub}>{Math.round(drink.logged / planned * 100)}% of plan</span>}</td>
+    </select><span className={styles.sub}>{status}</span></div></td>
+    <td data-label="Can make now"><CapacitySummary capacity={drink.archivedAt ? null : drink.capacity} stacked /></td>
+    <td data-label="Logged" className={styles.r}><strong>{drink.logged}</strong></td>
+    <td data-label="Planned" className={styles.r}><input type="number" min={0} step={1} inputMode="numeric" aria-label={`Planned servings of ${drink.name}`} value={planned} disabled={pending} onChange={e => setPlanned(Math.max(0, Math.floor(e.target.valueAsNumber || 0)))} />
+      {planned > 0 && <span className={styles.sub}>{Math.round(drink.logged / planned * 100)}% logged</span>}</td>
     <td data-label=""><button type="button" className={dirty ? posStyles.primary : posStyles.secondary} disabled={pending || !dirty} onClick={() => startTransition(async () => {
       setError(''); setMessage('');
       try {

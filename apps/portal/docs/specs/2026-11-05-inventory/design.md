@@ -73,9 +73,11 @@ Usage is computed on read from logs whose `voided_at` is null, so voids and corr
 
 POS menus are created fresh for every event, so linking each drink by hand would have to be redone every time. Instead a drink uses the **published recipe whose name matches it** (compared as slugs, so case and punctuation do not matter). Logging that drink deducts the recipe immediately with no setup. On the event page an admin can pin a different published recipe when names differ, or choose **Don't track this drink**. A name shared by two published recipes matches neither, rather than guessing.
 
-## Running-low warnings
+## What stock can make, and running-low warnings
 
-For each drink with a published recipe, every ingredient is taken at its largest per-drink amount over the drink's allowed choices (100% syrup, full ice, whichever milk uses more), and on hand ÷ that amount is how many more drinks it allows. When the smallest of those is **20 or fewer** (`DRINKS_LEFT_WARNING`), a large warning names the drink, about how many are left, and every ingredient at or under 20, with "oat milk only" and similar notes for conditional lines. It appears:
+For each drink with a published recipe, `drinkCapacity` works out how many more stock can make **per drink type** (temperature × milk). Within a type each ingredient is taken at its largest amount (100% syrup, full ice), and on hand ÷ that amount is how many it allows; the smallest is the answer and that ingredient runs out first. Types with the same answer are merged, so a drink limited only by milk reads "9 with oat milk · 15 with whole milk", and one limited by beans reads just "40". This estimate is shown on the event page ("Can make now"), on the Stock page for the current or next event, and on recipe cards (over every POS choice, with a cost-per-drink range).
+
+When any type is at **20 or fewer** (`DRINKS_LEFT_WARNING`), a large warning names the drink, each limited type and every ingredient at or under 20. It appears:
 
 - on the **kiosk** for that event, refreshing after every logged drink,
 - on the **event planning** page,
@@ -102,12 +104,13 @@ The inventory CSV now has one row per purchase option (`Item, Category, Unit, Su
 1. **Admin-only.** Counting is often done by baristas at the cart; letting non-admin members record counts would be a separate access decision.
 2. **Ice factors** none/light/full = 0 / 0.5 / 1 of the recipe's ice amount, and syrup scales linearly with 50/75/100%.
 3. **Plans use menu defaults.** An alternative is planning from the historical configuration mix.
-4. **Warnings start at 20 drinks left**, using each ingredient's largest per-drink amount. A shared ingredient is not divided between drinks.
-5. **Name matching is automatic.** A POS drink pours the published recipe with the same name unless an admin pins another or turns tracking off.
-6. **Usage uses the current published recipe**, as in the prototype, not the version in force when each drink was logged. Publishing a change re-estimates drinks logged since each item's last count. Recount after an event to lock in reality.
-7. **Deleting a POS event removes its orders from usage**, as it already removes them from analytics, so the estimate rises until the next recount.
-8. **Prototype recipes import as "every drink, fixed amount".** Milk, cup, syrup and ice lines need reviewing after import, or a hot, whole-milk recipe will charge whole milk to oat orders.
-9. **Slugs are fixed at creation.** Renaming a recipe keeps its slug, so re-importing a bundle updates it instead of duplicating it. The prototype derived slugs from the current name.
+4. **Estimates and warnings are cautious and per drink.** Each ingredient is taken at its largest amount for a drink type, warnings start at 20, and a shared ingredient is not divided between drinks.
+5. **Recipe cards no longer scale to a batch size.** The prototype's servings box showed both milk lines at full amounts at once, which overstated need; planning in quantity now happens on the event page.
+6. **Name matching is automatic.** A POS drink pours the published recipe with the same name unless an admin pins another or turns tracking off.
+7. **Usage uses the current published recipe**, as in the prototype, not the version in force when each drink was logged. Publishing a change re-estimates drinks logged since each item's last count. Recount after an event to lock in reality.
+8. **Deleting a POS event removes its orders from usage**, as it already removes them from analytics, so the estimate rises until the next recount.
+9. **Prototype recipes import as "every drink, fixed amount".** Milk, cup, syrup and ice lines need reviewing after import, or a hot, whole-milk recipe will charge whole milk to oat orders.
+10. **Slugs are fixed at creation.** Renaming a recipe keeps its slug, so re-importing a bundle updates it instead of duplicating it. The prototype derived slugs from the current name.
 
 ## Out of scope (prototype features not ported yet)
 

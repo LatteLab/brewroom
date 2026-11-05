@@ -133,8 +133,10 @@ test('drinks that stock can make 20 or fewer more of are flagged with their limi
   assert.deepEqual(await inventory.getDrinkWarnings(admin, event.id), []);
   await log(event.id, drink, 'Oat');
   const [warning] = await inventory.getDrinkWarnings(admin, event.id);
-  assert.deepEqual([warning.name, warning.drinksLeft, warning.limits.map(l => [l.item, l.drinksLeft, l.when])], [drink.name, 20, [[oat.name, 20, 'oat']]], 'it warns at 20, before running out');
-  assert.equal((await inventory.getEventInventory(admin, event.id))?.warnings.length, 1);
+  assert.deepEqual([warning.name, warning.drinksLeft, warning.groups.map(g => [g.label, g.drinksLeft, g.limits.map(l => l.item)])], [drink.name, 20, [['oat milk', 20, [oat.name]]]], 'it warns at 20 for the drink type that is limited, before running out');
+  const view = await inventory.getEventInventory(admin, event.id);
+  assert.equal(view?.warnings.length, 1);
+  assert.deepEqual(view?.menu[0].capacity?.groups.map(g => [g.label, g.drinksLeft]), [['oat milk', 20], ['whole milk', 94]], 'the event page shows what stock can make of each type');
   // Events that have ended are not warned about on the stock page; this test event's window is in the past.
   assert.equal((await inventory.getInventoryStock(admin)).warnings.some(w => w.eventId === event.id), false);
   const [current] = await pos.getPosMenu(admin, event.id);

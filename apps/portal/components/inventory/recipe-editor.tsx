@@ -5,11 +5,13 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowUp, X } from 'lucide-react';
 import { deleteRecipeAction, discardRecipeDraftAction, publishRecipeAction, saveRecipeDraftAction, unpublishRecipeAction } from '@/app/actions/inventory';
-import { checkRecipe, conditionLabels, fmtMoney, fmtQty, recipeState, scaleLabels, workingBody } from '@/lib/inventory';
+import { conditionLabels, drinkCapacity, drinkCostRange, fmtMoney, fmtQty, recipeState, scaleLabels, workingBody } from '@/lib/inventory';
+import { defaultMenuOptions } from '@/lib/validations/pos';
+import { CapacitySummary } from './capacity';
 import { formatPosDate } from '@/lib/pos';
 import { ingredientConditions, ingredientScales, recipeCategories, type RecipeBody } from '@/lib/validations/inventory';
 import type { InventoryRecipe } from '@/lib/db/schema';
-import { NeedPill, RecipeStatePill } from './pills';
+import { RecipeStatePill } from './pills';
 import posStyles from '../pos/pos.module.css';
 import styles from './inventory.module.css';
 
@@ -21,11 +23,12 @@ export function RecipeEditor({ recipe, stock, linked, startEditing }: { recipe: 
   const router = useRouter();
   const state = recipeState(recipe);
   const [editing, setEditing] = useState<RecipeBody | null>(startEditing ? structuredClone(workingBody(recipe)) : null);
-  const [servings, setServings] = useState(60);
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [pending, startTransition] = useTransition();
   const body = editing ?? workingBody(recipe);
   const stockByName = new Map(stock.map(item => [item.name, item]));
-  const check = checkRecipe(body, servings, stockByName);
+  // A recipe is not tied to one event's menu, so it is assessed over every POS choice.
+  const capacity = drinkCapacity(body, defaultMenuOptions, stockByName);
+  const cost = drinkCostRange(body, defaultMenuOptions, stockByName);
   const names = stock.map(item => item.name).sort((a, b) => a.localeCompare(b));
   const expected = { id: recipe.id, expectedVersion: recipe.version };
 
@@ -60,7 +63,7 @@ export function RecipeEditor({ recipe, stock, linked, startEditing }: { recipe: 
           <label>Category<select value={editing.category} onChange={e => edit(d => { d.category = e.target.value as RecipeBody['category']; })}>{recipeCategories.map(c => <option key={c}>{c}</option>)}</select></label>
         </div> : <div>
           <h2>{body.name || 'Untitled recipe'}</h2>
-          <p className={posStyles.muted}>{body.category}{recipe.publishedVersion ? ` · published version ${recipe.publishedVersion}` : ''}{recipe.publishedAt ? ` on ${formatPosDate(recipe.publishedAt)}` : ''} · slug <code>{recipe.slug}</code></p>
+          <p className={posStyles.muted}>{body.category}{recipe.publishedVersion ? ` · published version ${recipe.publishedVersion}` : ''}{recipe.publishedAt ? ` on ${formatPosDate(recipe.publishedAt)}` : ''}</p>
         </div>}
         <div className={posStyles.actions}>
           <RecipeStatePill state={state} />
@@ -81,29 +84,24 @@ export function RecipeEditor({ recipe, stock, linked, startEditing }: { recipe: 
       <p role="status" className={posStyles.muted}>{pending ? 'Saving…' : message}</p>
       {state === 'changed' && !editing && <div className={styles.banner}>This recipe has edits that are not published. Stock usage and event plans still use version {recipe.publishedVersion}.</div>}
 
-      <div className={styles.scale}>
-        <label htmlFor="servings">Servings</label>
-        <input id="servings" type="number" min={0} step={1} value={servings} onChange={e => setServings(Math.max(0, Math.floor(e.target.valueAsNumber || 0)))} />
-        <span>{check.maxServings !== null ? `Stock supports ${check.maxServings} (from lines every drink uses)` : ''}</span>
-        <span style={{ marginLeft: 'auto' }}>{!body.ingredients.length ? 'Nothing to check' : check.missing.length ? `${check.missing.length} not in inventory` : check.short.length ? `Short on ${check.short.length}` : 'All ingredients in stock'}</span>
-      </div>
+      {body.ingredients.length > 0 && <p className={styles.summary}>
+        <span>Stock can make <CapacitySummary capacity={capacity} compact /></span>
+        <span><strong>{cost.min === cost.max ? fmtMoney(cost.min) : `${fmtMoney(cost.min)}–${fmtMoney(cost.max)}`}</strong> per drink</span>
+      </p>}
 
       <div className={styles.columns}>
         <div>
-          <h3>Ingredients <span className={posStyles.muted}>per serving, scaled to {servings}</span></h3>
-          {editing ? <IngredientEditor body={editing} names={names} stock={stockByName} edit={edit} /> : !check.rows.length ? <p className={posStyles.empty}>No ingredients yet. Use Edit to add them.</p> : <>
+          <h3>Ingredients <span className={posStyles.muted}>for one drink</span></h3>
+          {editing ? <IngredientEditor body={editing} names={names} stock={stockByName} edit={edit} /> : !body.ingredients.length ? <p className={posStyles.empty}>No ingredients yet. Use Edit to add them.</p> : <>
             <div className={styles.tableWrap}><table className={`${styles.table} ${styles.stack}`}>
-              <thead><tr><th>Item</th><th className={styles.r}>Per serving</th><th className={styles.r}>Needed</th><th className={styles.r}>On hand</th><th>Stock</th></tr></thead>
-              <tbody>{check.rows.map((row, index) => <tr key={index} className={row.known && !row.enough ? styles.short : undefined}>
-                <td>{row.item}<span className={styles.sub}>{[row.when !== 'always' ? conditionLabels[row.when] : '', row.scale !== 'fixed' ? scaleLabels[row.scale] : '', row.note].filter(Boolean).join(' · ')}</span></td>
-                <td data-label="Per serving" className={styles.r}>{fmtQty(row.perServing)} {row.unit}</td>
-                <td data-label="Needed" className={styles.r}><strong>{fmtQty(row.needed)}</strong></td>
-                <td data-label="On hand" className={styles.r}>{row.onHand === null ? '—' : fmtQty(row.onHand)}</td>
-                <td data-label="Stock"><NeedPill {...row} /></td>
-              </tr>)}</tbody>
+              <thead><tr><th>Item</th><th className={styles.r}>Amount</th><th className={styles.r}>On hand</th></tr></thead>
+              <tbody>{body.ingredients.map((line, index) => { const item = stockByName.get(line.item); return <tr key={index}>
+                <td>{line.item}<span className={styles.sub}>{[line.when !== 'always' ? conditionLabels[line.when] : '', line.scale !== 'fixed' ? scaleLabels[line.scale] : '', line.note].filter(Boolean).join(' · ')}</span></td>
+                <td data-label="Amount" className={styles.r}>{fmtQty(line.qty)} {item?.unit ?? line.unit}</td>
+                <td data-label="On hand" className={styles.r}>{item ? fmtQty(item.onHand) : <span className={`${styles.pill} ${styles.warn}`}>Not in inventory</span>}</td>
+              </tr>; })}</tbody>
             </table></div>
-            <div className={posStyles.stats}><div><span>Batch cost</span><strong>{fmtMoney(check.cost)}</strong></div><div><span>Per serving</span><strong>{servings > 0 ? fmtMoney(check.cost / servings) : '—'}</strong></div></div>
-            <p className={posStyles.muted}>Conditional and scaled lines are shown at their full amount here. POS usage applies them per drink: milk lines follow the milk choice, hot and iced lines follow temperature, syrup lines scale with 50/75/100%, and ice lines scale none/light/full as 0/½/1.</p>
+            <p className={posStyles.muted}>Amounts are at 100% syrup and full ice. In POS, milk lines follow the milk choice, hot and iced lines the temperature, and syrup and ice lines scale with the order.</p>
           </>}
         </div>
         <div>
