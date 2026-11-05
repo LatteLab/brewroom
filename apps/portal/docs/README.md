@@ -28,6 +28,7 @@ This layout is the repository convention. It works with poteto mode, which separ
 | Feature | Design | Implementation plan |
 | --- | --- | --- |
 | Admin-only POS and drink analytics | [Current design](specs/2026-10-29-drink-analytics/design.md) | [Delivery and verification history](specs/2026-10-29-drink-analytics/implementation-plan.md) |
+| POS stock and ingredient usage (proposal, migration not applied) | [Design](specs/2026-11-04-pos-inventory/design.md) | Not recorded |
 
 POS logging, overview analytics, menu archiving, and removed-log kerb cleanup are merged into `main`. The three database migrations were applied on October 29, 2026. The admin-only access follow-up removes the earlier non-admin cashier allowlist. A merged commit or applied migration does not establish that the newest production UI was verified.
 
