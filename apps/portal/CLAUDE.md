@@ -19,6 +19,7 @@ pnpm --filter @lattelab/portal build
 pnpm --filter @lattelab/portal lint
 pnpm --filter @lattelab/portal typecheck
 pnpm --filter @lattelab/portal test:pos
+pnpm --filter @lattelab/portal test:inventory
 ```
 
 Database tools are separate from setup and builds. Confirm the target and coordinate schema changes before using `pnpm --filter @lattelab/portal db:studio` or `pnpm --filter @lattelab/portal db:push`.
@@ -38,6 +39,8 @@ app/
 │   ├── events/[id]/checkin/    # Mobile check-in mode
 │   ├── users/page.tsx          # Team Directory
 │   ├── users/[id]/page.tsx     # User detail with event history
+│   ├── pos/                    # POS events, menus, analytics (see drink-analytics spec)
+│   ├── inventory/              # Stock, recipes, event planning, equipment, import/export
 │   └── settings/page.tsx       # Admin whitelist & semester config
 ├── (auth)/login/               # Login page
 ├── (user)/user/                # Member portal (protected)
@@ -95,6 +98,8 @@ lib/
 - `event_plus_one_invites` — Pair invites (pending/accepted); both FK columns cascade on registration delete
 - `events.questions` (JSON) — Per-event registration questionnaire definitions
 - `event_registrations.questionnaire_answers` (JSON) — User responses keyed by question ID
+- `pos_events`, `pos_event_menu_items`, `pos_drink_logs` — POS order logging (see `docs/specs/2026-10-29-drink-analytics/`)
+- `inventory_items`, `inventory_recipes`, `inventory_equipment`, `inventory_menu_links` — Inventory tab (see `docs/specs/2026-11-05-inventory/`)
 
 ## Key Patterns
 
@@ -143,6 +148,8 @@ if (!session?.user) throw new Error("Unauthorized");
 **Audit logging:** Every server action that changes a registration status must call `createAuditLogEntry()` with the old/new status, action type, and actor info. For bulk operations, use `createAuditLogEntries()`. For deletions: create audit entry *before* `deleteRegistration` so the FK check passes. Note: `registrationId` has `onDelete: cascade`, so the entry will be cascade-deleted too. If the audit must survive (e.g. user-initiated cancellation), pass `registrationId: null` instead.
 
 **Error boundaries:** Route-group `error.tsx` files (`(admin)`, `(user)`) use shared `components/error-boundary-content.tsx`. `app/global-error.tsx` replaces the root layout entirely — must import `globals.css` directly and load Geist font via `<link>` tag since `next/font` isn't available. All error boundaries report to PostHog via `posthog.captureException()`. Server-side errors captured in `instrumentation.ts` — use `posthog.flush()` (not await on `captureException`) to ensure delivery in serverless.
+
+**Inventory and POS:** Inventory reads POS menus and valid drink logs but never writes POS tables. Stock on hand is derived as counted (bag size × sealed bags + open bag) minus usage from valid logs recorded after the item's `counted_at`; never store it. Only a recipe's `published` body affects usage and plans. `inventory_menu_links` cascades with POS menu items, so POS event deletion needs no inventory step. Database test suites that reset POS tables must drop `inventory_` tables first.
 
 ## Gotchas
 

@@ -81,3 +81,14 @@ For a disposable local PostgreSQL server, `DATABASE_SSL=disable` is accepted onl
 From the repository root, run pure input/time/report tests with `pnpm --filter @lattelab/portal test:pos`. For real transaction tests, set `POS_TEST_DATABASE_URL` to a disposable loopback database named exactly `lattelab_pos_integration`, then run `pnpm --filter @lattelab/portal test:pos:db`. That suite resets its own four fixture tables and refuses other database names or remote hosts. It never reads production credentials or resets the normal development database.
 
 See the [drink analytics design](docs/specs/2026-10-29-drink-analytics/design.md) and [implementation plan](docs/specs/2026-10-29-drink-analytics/implementation-plan.md) for the feature contract and verification record.
+
+
+## Inventory
+
+`/admin/inventory` is the admin inventory tab, merged from the [inventory prototype](https://github.com/LatteLab/inventory-system-draft). It has five sections: Stock, Recipes, Event planning, Equipment and Import / export. It uses separate `inventory_` tables, reads POS menus and drink logs, and never writes to POS tables.
+
+Link each POS drink to a published recipe under **Event planning**. Each valid POS log then deducts that recipe's ingredients from the stock estimate, using the order's temperature, milk, syrup and ice choices. Voids and corrections update the estimate immediately. **Save count** records a physical count and resets the baseline. Planned servings use each drink's default choices to produce a demand table and a shopping list in whole bags.
+
+Recipes keep the prototype's draft/published split. Only **Publish** changes what POS usage and plans use. Import and export use the prototype's `lattelab-data` bundle and inventory CSV, so the live prototype's export loads unchanged. Prototype recipes import with every line applying to every drink. Review their milk, cup, syrup and ice lines before linking them.
+
+Apply `lib/db/migrations/20261105120000_inventory.sql` after the POS migrations through the team's database change process. It adds four tables with RLS and revoked direct grants. Run `pnpm --filter @lattelab/portal test:inventory` for domain tests and `test:inventory:db` with the same disposable `POS_TEST_DATABASE_URL` as the POS suite. Do not run the two database suites at the same time; each resets the same tables. See the [inventory design](docs/specs/2026-11-05-inventory/design.md) for assumptions and what is not ported yet.
