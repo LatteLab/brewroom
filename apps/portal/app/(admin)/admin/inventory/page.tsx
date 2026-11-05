@@ -1,13 +1,13 @@
 import { requireInventoryAdmin } from '@/lib/inventory-access';
 import { getInventoryStock } from '@/lib/db/inventory-queries';
-import { fmtMoney } from '@/lib/inventory';
+import { fmtMoney, stockStatus } from '@/lib/inventory';
 import { StockTable } from '@/components/inventory/stock-table';
 import posStyles from '@/components/pos/pos.module.css';
 export const dynamic = 'force-dynamic';
 
 export default async function InventoryStockPage() {
   const items = await getInventoryStock(await requireInventoryAdmin());
-  const low = items.filter(item => item.onHand <= 0 || (item.par > 0 && item.onHand <= item.par)).length;
+  const low = items.filter(item => stockStatus(item.onHand, item.par) !== 'ok').length;
   const value = items.reduce((sum, item) => sum + Math.max(0, item.onHand) * item.costPerUnit, 0);
   return <section className={posStyles.section} aria-labelledby="stock-heading">
     <h2 id="stock-heading">Stock</h2>

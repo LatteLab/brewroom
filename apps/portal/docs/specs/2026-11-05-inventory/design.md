@@ -59,7 +59,7 @@ Example: a latte lists whole milk (`whole`), oat milk (`oat`), syrup (`syrup`), 
 estimated on hand = counted − Σ usage from valid POS logs recorded after counted_at
 ```
 
-Usage is computed on read from logs whose `voided_at` is null, so voids and corrections are reflected immediately and nothing needs reconciling. Corrections keep the original `recorded_at`, so they stay on the correct side of a count. Recounting resets the baseline. The estimate can go negative; the UI flags that as "recount".
+Usage is computed on read from logs whose `voided_at` is null, so voids and corrections are reflected immediately and nothing needs reconciling. SQL groups the logs by drink, configuration and the count interval they fall in, so a read returns counts × drinks × configurations rows rather than every drink ever logged. The ingredient rules stay in tested TypeScript (`lib/inventory.ts`). Corrections keep the original `recorded_at`, so they stay on the correct side of a count. Recounting resets the baseline. The estimate can go negative; the UI flags that as "recount".
 
 ## Event planning
 

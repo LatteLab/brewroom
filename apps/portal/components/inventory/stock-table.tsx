@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { countInventoryItemAction } from '@/app/actions/inventory';
-import { countedQuantity, fmtQty } from '@/lib/inventory';
+import { countedQuantity, fmtQty, stockStatus } from '@/lib/inventory';
 import { formatPosDate } from '@/lib/pos';
 import { itemCategories } from '@/lib/validations/inventory';
 import type { StockRow } from '@/lib/db/inventory-queries';
@@ -26,7 +26,7 @@ function CountRow({ item }: { item: StockRow }) {
       router.refresh();
     } catch { setMessage('Could not confirm the count. Refresh and try again.'); }
   });
-  return <tr className={item.onHand <= item.par && item.par > 0 || item.onHand <= 0 ? styles.short : undefined}>
+  return <tr className={stockStatus(item.onHand, item.par) === 'ok' ? undefined : styles.short}>
     <td>{item.name}{item.notes && <span className={styles.sub}>{item.notes}</span>}<span className={styles.sub}>{item.category} · {item.unit}{item.bagSize > 0 ? ` · bag of ${fmtQty(item.bagSize)}` : ''}</span></td>
     <td data-label="Sealed bags" className={styles.r}><input type="number" min={0} step="any" inputMode="decimal" aria-label={`Sealed bags of ${item.name}`} value={sealed} disabled={pending} onChange={e => setSealed(e.target.valueAsNumber || 0)} /></td>
     <td data-label="Open bag" className={styles.r}><input type="number" min={0} step="any" inputMode="decimal" aria-label={`Units in the open bag of ${item.name}`} value={openBag} disabled={pending} onChange={e => setOpenBag(e.target.valueAsNumber || 0)} /></td>
@@ -45,7 +45,7 @@ function CountRow({ item }: { item: StockRow }) {
 export function StockTable({ items }: { items: StockRow[] }) {
   const [search, setSearch] = useState(''); const [category, setCategory] = useState('all'); const [lowOnly, setLowOnly] = useState(false);
   const q = search.trim().toLowerCase();
-  const shown = items.filter(item => (!q || item.name.toLowerCase().includes(q)) && (category === 'all' || item.category === category) && (!lowOnly || item.onHand <= 0 || (item.par > 0 && item.onHand <= item.par)));
+  const shown = items.filter(item => (!q || item.name.toLowerCase().includes(q)) && (category === 'all' || item.category === category) && (!lowOnly || stockStatus(item.onHand, item.par) !== 'ok'));
   return <>
     <div className={styles.toolbar}>
       <label>Search<input type="search" value={search} placeholder="Item name" onChange={e => setSearch(e.target.value)} /></label>

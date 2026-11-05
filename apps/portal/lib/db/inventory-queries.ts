@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './index';
 import { inventoryEquipment, inventoryItems, inventoryMenuLinks, inventoryRecipes, posDrinkLogs, posEvents, posMenuItems, type InventoryItem, type InventoryRecipe } from './schema';
-import { InventoryError, countedQuantity, readBundle, slugify, usageFromLogs, workingBody, type RecipeRef, type StockLine, type UsageLog } from '../inventory';
+import { InventoryError, countedQuantity, readBundle, recipeRefs, slugify, usageFromLogs, workingBody, type UsageLog } from '../inventory';
 import type { PosActor } from '../pos';
 import {
-  countItemSchema, createRecipeSchema, deleteByIdSchema, menuLinkSchema, recipeBodySchema, recipeTransitionSchema, saveDraftSchema, saveEquipmentSchema, saveItemSchema,
+  countItemSchema, createRecipeSchema, deleteByIdSchema, itemFieldsSchema, menuLinkSchema, recipeBodySchema, recipeTransitionSchema, saveDraftSchema, saveEquipmentSchema, saveItemSchema,
   type ItemFields, type RecipeBody,
 } from '../validations/inventory';
 import { configurationSchema } from '../validations/pos';
@@ -30,29 +30,34 @@ async function unique<T>(work: Promise<T>, message: string) {
 
 // ----------------------------------------------------------------- reads
 
-/** Valid drink logs for linked drinks, recorded after `since`. Voided and superseded rows never count. */
-async function linkedLogs(tx: Tx, since: Date, eventId?: string): Promise<UsageLog[]> {
-  const conditions = [isNull(posDrinkLogs.voidedAt), isNotNull(inventoryMenuLinks.recipeId), gt(posDrinkLogs.recordedAt, since)];
-  if (eventId) conditions.push(eq(posDrinkLogs.eventId, eventId));
-  const rows = await tx.select({ menuItemId: posDrinkLogs.menuItemId, configuration: posDrinkLogs.configuration, quantity: posDrinkLogs.quantity, recordedAt: posDrinkLogs.recordedAt })
-    .from(posDrinkLogs).innerJoin(inventoryMenuLinks, eq(inventoryMenuLinks.menuItemId, posDrinkLogs.menuItemId)).where(and(...conditions));
-  return rows.map(row => ({ ...row, configuration: configurationSchema.parse(row.configuration) }));
+/**
+ * Valid logs of linked drinks recorded after the earliest item count, aggregated in SQL. Rows are grouped by drink,
+ * configuration and the count interval they fall in (the latest `counted_at` before them). Every log in a group is on
+ * the same side of every item's count, so the group's earliest time is an exact stand-in for `usageFromLogs`, and the
+ * result grows with counts × drinks × configurations rather than with every drink ever logged.
+ */
+async function linkedUsageGroups(tx: Tx): Promise<UsageLog[]> {
+  const rows = await tx.execute(sql`
+    select ${posDrinkLogs.menuItemId} as "menuItemId", ${posDrinkLogs.configuration} as "configuration",
+      sum(${posDrinkLogs.quantity})::int as "quantity", min(${posDrinkLogs.recordedAt}) as "recordedAt"
+    from ${posDrinkLogs}
+    join ${inventoryMenuLinks} on ${inventoryMenuLinks.menuItemId} = ${posDrinkLogs.menuItemId} and ${inventoryMenuLinks.recipeId} is not null
+    cross join lateral (select max(${inventoryItems.countedAt}) as after_count from ${inventoryItems} where ${inventoryItems.countedAt} < ${posDrinkLogs.recordedAt}) as count_window
+    where ${posDrinkLogs.voidedAt} is null and count_window.after_count is not null
+    group by ${posDrinkLogs.menuItemId}, ${posDrinkLogs.configuration}, count_window.after_count`);
+  return rows.map(row => usageGroupSchema.parse(row));
 }
-async function linkMap(tx: Tx, eventId?: string) {
-  const rows = await tx.select({ menuItemId: inventoryMenuLinks.menuItemId, recipeId: inventoryMenuLinks.recipeId }).from(inventoryMenuLinks).where(eventId ? eq(inventoryMenuLinks.eventId, eventId) : undefined);
+const usageGroupSchema = z.object({ menuItemId: z.uuid(), configuration: configurationSchema, quantity: z.number().int().positive(), recordedAt: z.coerce.date() });
+async function linkMap(tx: Tx) {
+  const rows = await tx.select({ menuItemId: inventoryMenuLinks.menuItemId, recipeId: inventoryMenuLinks.recipeId }).from(inventoryMenuLinks);
   return new Map(rows.map(row => [row.menuItemId, row.recipeId]));
-}
-function recipeRefs(recipes: InventoryRecipe[]) {
-  return new Map<string, RecipeRef>(recipes.map(recipe => [recipe.id, { id: recipe.id, name: workingBody(recipe).name, published: recipe.published }]));
 }
 
 /** Items with their counted quantity, POS usage since that count, and the estimate of what is left. */
 async function stockWithUsage(tx: Tx) {
   const items = await tx.select().from(inventoryItems).orderBy(asc(inventoryItems.category), asc(inventoryItems.name));
   const recipes = await tx.select().from(inventoryRecipes);
-  const earliest = items.reduce<Date | null>((min, item) => (!min || item.countedAt < min ? item.countedAt : min), null);
-  const logs = earliest ? await linkedLogs(tx, earliest) : [];
-  const usage = usageFromLogs(logs, await linkMap(tx), recipeRefs(recipes), new Map(items.map(item => [item.name, item.countedAt])));
+  const usage = usageFromLogs(await linkedUsageGroups(tx), await linkMap(tx), recipeRefs(recipes), new Map(items.map(item => [item.name, item.countedAt])));
   return {
     recipes,
     items: items.map(item => {
@@ -62,9 +67,6 @@ async function stockWithUsage(tx: Tx) {
   };
 }
 export type StockRow = Awaited<ReturnType<typeof stockWithUsage>>['items'][number];
-export function stockMap(items: StockRow[]) {
-  return new Map<string, StockLine>(items.map(item => [item.name, { name: item.name, unit: item.unit, bagSize: item.bagSize, costPerUnit: item.costPerUnit, onHand: item.onHand }]));
-}
 
 export async function getInventoryStock(actor: PosActor) {
   admin(actor);
@@ -80,7 +82,7 @@ export async function getRecipeWithStock(actor: PosActor, recipeId: string) {
     const [recipe] = await tx.select().from(inventoryRecipes).where(eq(inventoryRecipes.id, id));
     if (!recipe) return null;
     const { items } = await stockWithUsage(tx);
-    const linked = await tx.select({ eventId: posEvents.id, eventName: posEvents.name, startsAt: posEvents.startsAt, drinkName: posMenuItems.name })
+    const linked = await tx.select({ menuItemId: posMenuItems.id, eventId: posEvents.id, eventName: posEvents.name, startsAt: posEvents.startsAt, drinkName: posMenuItems.name })
       .from(inventoryMenuLinks).innerJoin(posMenuItems, eq(posMenuItems.id, inventoryMenuLinks.menuItemId)).innerJoin(posEvents, eq(posEvents.id, inventoryMenuLinks.eventId))
       .where(eq(inventoryMenuLinks.recipeId, id)).orderBy(desc(posEvents.startsAt));
     return { recipe, items, linked };
@@ -116,12 +118,11 @@ export async function getEventInventory(actor: PosActor, eventId: string) {
     if (!event) return null;
     const menu = await tx.select({ id: posMenuItems.id, name: posMenuItems.name, options: posMenuItems.options, available: posMenuItems.available, archivedAt: posMenuItems.archivedAt, sortOrder: posMenuItems.sortOrder, recipeId: inventoryMenuLinks.recipeId, plannedServings: inventoryMenuLinks.plannedServings })
       .from(posMenuItems).leftJoin(inventoryMenuLinks, eq(inventoryMenuLinks.menuItemId, posMenuItems.id)).where(eq(posMenuItems.eventId, id)).orderBy(asc(posMenuItems.sortOrder), asc(posMenuItems.name));
-    const logged = await tx.select({ menuItemId: posDrinkLogs.menuItemId, drinks: sql<number>`sum(${posDrinkLogs.quantity})`.mapWith(Number) })
-      .from(posDrinkLogs).where(and(eq(posDrinkLogs.eventId, id), isNull(posDrinkLogs.voidedAt))).groupBy(posDrinkLogs.menuItemId);
-    const loggedBy = new Map(logged.map(row => [row.menuItemId, row.drinks]));
     const { items, recipes } = await stockWithUsage(tx);
     const logs = (await tx.select({ menuItemId: posDrinkLogs.menuItemId, configuration: posDrinkLogs.configuration, quantity: posDrinkLogs.quantity, recordedAt: posDrinkLogs.recordedAt })
       .from(posDrinkLogs).where(and(eq(posDrinkLogs.eventId, id), isNull(posDrinkLogs.voidedAt)))).map(row => ({ ...row, configuration: configurationSchema.parse(row.configuration) }));
+    const loggedBy = new Map<string, number>();
+    for (const log of logs) loggedBy.set(log.menuItemId, (loggedBy.get(log.menuItemId) ?? 0) + log.quantity);
     return {
       event, items, recipes, logs,
       // Removed drinks stay listed only while they have valid orders, so their usage can still be attributed.
@@ -210,7 +211,7 @@ async function mergeItems(tx: Tx, actor: PosActor, rows: ItemFields[]) {
   return { added, updated };
 }
 export async function importInventoryItems(actor: PosActor, rows: ItemFields[]) {
-  admin(actor); const items = rows.map(row => saveItemSchema.parse(row));
+  admin(actor); const items = rows.map(row => itemFieldsSchema.parse(row));
   return unique(db.transaction(tx => mergeItems(tx, actor, items)), 'Two rows resolve to the same item name. Refresh and try again.');
 }
 

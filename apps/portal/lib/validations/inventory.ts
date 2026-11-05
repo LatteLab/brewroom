@@ -111,5 +111,7 @@ export const bundleRecipeSchema = z.object({
   steps: z.array(text(1000)).max(60).default([]),
   notes: text(4000).default(''),
 }).strip();
-export const importBundleSchema = z.object({ text: z.string().max(2_000_000) }).strict();
-export const importCsvSchema = z.object({ text: z.string().max(2_000_000) }).strict();
+// Server actions accept Next's default 1 MB request body, so files are limited below that.
+export const IMPORT_MAX_CHARS = 900_000;
+export const importBundleSchema = z.object({ text: z.string().max(IMPORT_MAX_CHARS, 'That file is too large to import.') }).strict();
+export const importCsvSchema = z.object({ text: z.string().max(IMPORT_MAX_CHARS, 'That file is too large to import.') }).strict();

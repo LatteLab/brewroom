@@ -14,7 +14,7 @@ import posStyles from '../pos/pos.module.css';
 import styles from './inventory.module.css';
 
 type Stock = { name: string; unit: string; onHand: number; costPerUnit: number };
-type Linked = { eventId: string; eventName: string; startsAt: Date; drinkName: string };
+type Linked = { menuItemId: string; eventId: string; eventName: string; startsAt: Date; drinkName: string };
 type Result = { ok: true; recipe?: InventoryRecipe } | { ok: false; error: string };
 
 export function RecipeEditor({ recipe, stock, linked, startEditing }: { recipe: InventoryRecipe; stock: Stock[]; linked: Linked[]; startEditing: boolean }) {
@@ -126,7 +126,7 @@ export function RecipeEditor({ recipe, stock, linked, startEditing }: { recipe: 
     </section>
     <section className={posStyles.section} aria-labelledby="linked-heading">
       <h2 id="linked-heading">POS drinks using this recipe</h2>
-      {linked.length ? <ul className={styles.list}>{linked.map(link => <li key={`${link.eventId}-${link.drinkName}`}><Link className={posStyles.textLink} href={`/admin/inventory/events/${link.eventId}`}>{link.eventName}</Link> — {link.drinkName} · {formatPosDate(link.startsAt)}</li>)}</ul>
+      {linked.length ? <ul className={styles.list}>{linked.map(link => <li key={link.menuItemId}><Link className={posStyles.textLink} href={`/admin/inventory/events/${link.eventId}`}>{link.eventName}</Link> — {link.drinkName} · {formatPosDate(link.startsAt)}</li>)}</ul>
         : <p className={posStyles.muted}>Not linked yet. Link it to a drink under Event planning once it is published.</p>}
     </section>
   </>;

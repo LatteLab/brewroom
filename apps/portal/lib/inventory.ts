@@ -1,6 +1,7 @@
 // Inventory domain rules. Pure functions only: no database and no React, so they can be tested directly.
 // Ported from the prototype's schema.js (LatteLab/inventory-system-draft) and extended so recipes respond to
 // POS drink configurations. See docs/specs/2026-11-05-inventory/design.md.
+import type { z } from 'zod';
 import type { Configuration } from './validations/pos';
 import {
   BUNDLE_FORMAT, BUNDLE_VERSION, bundleEnvelopeSchema, bundleEquipmentSchema, bundleItemSchema, bundleRecipeSchema,
@@ -115,6 +116,9 @@ export function checkRecipe(body: RecipeBody, servings: number, stock: Map<strin
 export type UsageLog = { menuItemId: string; configuration: Configuration; quantity: number; recordedAt: Date | string };
 export type RecipeRef = { id: string; name: string; published: RecipeBody | null };
 export type DrinkLinks = Map<string, string | null>; // POS menu item id -> recipe id
+export function recipeRefs(recipes: ({ id: string } & RecipeDoc)[]) {
+  return new Map<string, RecipeRef>(recipes.map(recipe => [recipe.id, { id: recipe.id, name: workingBody(recipe).name, published: recipe.published }]));
+}
 
 function servingBody(menuItemId: string, links: DrinkLinks, recipes: Map<string, RecipeRef>) {
   const recipeId = links.get(menuItemId) ?? null;
@@ -148,6 +152,9 @@ export function usageFromLogs(logs: UsageLog[], links: DrinkLinks, recipes: Map<
 }
 
 export type StockLine = { name: string; unit: string; bagSize: number; costPerUnit: number; onHand: number };
+export function stockMap(items: StockLine[]) {
+  return new Map<string, StockLine>(items.map(({ name, unit, bagSize, costPerUnit, onHand }) => [name, { name, unit, bagSize, costPerUnit, onHand }]));
+}
 export type DemandRow = { item: string; unit: string; needed: number; onHand: number | null; known: boolean; enough: boolean; short: number; cost: number; buyBags: number; bagSize: number };
 /** Compare a per-item demand total against stock, with a shopping line rounded up to whole sealed bags. */
 export function demandRows(totals: Map<string, number>, stock: Map<string, StockLine>): DemandRow[] {
@@ -258,7 +265,7 @@ export function buildBundle(items: ItemFields[], equipment: EquipmentFields[], r
   return {
     format: BUNDLE_FORMAT, version: BUNDLE_VERSION, exportedAt: exportedAt.toISOString(),
     inventory: items.map(item => ({ name: item.name, category: item.category, unit: item.unit, bagSize: item.bagSize, sealedBags: item.sealedBags, openBag: item.openBag, par: item.par, costPerUnit: item.costPerUnit, supplier: item.supplier, notes: item.notes })),
-    equipment: equipment.map(item => ({ ...item })),
+    equipment: equipment.map(item => ({ name: item.name, category: item.category, quantity: item.quantity, status: item.status, location: item.location, custodian: item.custodian, serial: item.serial, notes: item.notes, lastCheckedAt: item.lastCheckedAt })),
     // A recipe with unpublished edits exports its published body: the bundle carries what is actually served.
     recipes: recipes.map(recipe => {
       const body = recipe.published ?? recipe.draft ?? emptyBody();
@@ -281,7 +288,7 @@ export function readBundle(parsed: unknown) {
   if ((value.version ?? 0) > BUNDLE_VERSION) return { ok: false as const, error: `This bundle is version ${value.version} and the portal reads up to ${BUNDLE_VERSION}.` };
   const skipped: string[] = [];
   const label = (row: unknown, kind: string, index: number) => (row && typeof row === 'object' && 'name' in row && typeof row.name === 'string' && row.name ? `${kind} "${row.name}"` : `${kind} row ${index + 1}`);
-  const take = <T,>(rows: unknown[] | undefined, kind: string, schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { issues: { message: string }[] } } }, key: (row: T) => string) => {
+  const take = <T,>(rows: unknown[] | undefined, kind: string, schema: z.ZodType<T>, key: (row: T) => string) => {
     const out: T[] = []; const seen = new Set<string>();
     (rows ?? []).forEach((row, index) => {
       const result = schema.safeParse(row);

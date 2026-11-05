@@ -39,7 +39,6 @@ app/
 │   ├── events/[id]/checkin/    # Mobile check-in mode
 │   ├── users/page.tsx          # Team Directory
 │   ├── users/[id]/page.tsx     # User detail with event history
-│   ├── pos/                    # POS events, menus, analytics (see drink-analytics spec)
 │   ├── inventory/              # Stock, recipes, event planning, equipment, import/export
 │   └── settings/page.tsx       # Admin whitelist & semester config
 ├── (auth)/login/               # Login page
@@ -98,7 +97,6 @@ lib/
 - `event_plus_one_invites` — Pair invites (pending/accepted); both FK columns cascade on registration delete
 - `events.questions` (JSON) — Per-event registration questionnaire definitions
 - `event_registrations.questionnaire_answers` (JSON) — User responses keyed by question ID
-- `pos_events`, `pos_event_menu_items`, `pos_drink_logs` — POS order logging (see `docs/specs/2026-10-29-drink-analytics/`)
 - `inventory_items`, `inventory_recipes`, `inventory_equipment`, `inventory_menu_links` — Inventory tab (see `docs/specs/2026-11-05-inventory/`)
 
 ## Key Patterns

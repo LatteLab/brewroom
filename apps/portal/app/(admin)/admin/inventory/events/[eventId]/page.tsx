@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
 import { requireInventoryAdmin } from '@/lib/inventory-access';
-import { getEventInventory, stockMap } from '@/lib/db/inventory-queries';
-import { demandRows, eventPlan, fmtMoney, fmtQty, usageFromLogs, workingBody, type RecipeRef } from '@/lib/inventory';
+import { getEventInventory } from '@/lib/db/inventory-queries';
+import { demandRows, eventPlan, fmtMoney, fmtQty, recipeRefs, stockMap, usageFromLogs } from '@/lib/inventory';
 import { configurationLabel, formatPosDate } from '@/lib/pos';
 import { MenuLinkRow } from '@/components/inventory/menu-link-row';
 import { NeedPill } from '@/components/inventory/pills';
@@ -17,7 +17,7 @@ export default async function EventInventoryPage({ params }: { params: Promise<{
   const view = await getEventInventory(actor, eventId); if (!view) notFound();
   const { event, menu, items, recipes, logs } = view;
 
-  const refs = new Map<string, RecipeRef>(recipes.map(recipe => [recipe.id, { id: recipe.id, name: workingBody(recipe).name, published: recipe.published }]));
+  const refs = recipeRefs(recipes);
   const links = new Map(menu.map(drink => [drink.id, drink.recipeId]));
   const stock = stockMap(items);
   const plan = eventPlan(menu.filter(drink => !drink.archivedAt).map(drink => ({ menuItemId: drink.id, name: drink.name, defaults: drink.options.defaults, plannedServings: drink.plannedServings })), links, refs, stock);

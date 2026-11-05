@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { importBundleAction, importInventoryCsvAction } from '@/app/actions/inventory';
+import { IMPORT_MAX_CHARS } from '@/lib/validations/inventory';
 import posStyles from '../pos/pos.module.css';
 import styles from './inventory.module.css';
 
@@ -13,7 +14,9 @@ export function ImportForm({ kind }: { kind: 'bundle' | 'csv' }) {
   const [text, setText] = useState(''); const [error, setError] = useState(''); const [summary, setSummary] = useState<Summary | null>(null);
   const [pending, startTransition] = useTransition();
   const id = `import-${kind}`;
-  return <form onSubmit={e => { e.preventDefault(); setError(''); setSummary(null); startTransition(async () => {
+  return <form onSubmit={e => { e.preventDefault(); setError(''); setSummary(null);
+    if (text.length > IMPORT_MAX_CHARS) { setError('That file is too large to import in one go (about 900 KB). Split it and import each part; nothing is deleted between imports.'); return; }
+    startTransition(async () => {
     try {
       if (kind === 'bundle') {
         const r = await importBundleAction({ text });

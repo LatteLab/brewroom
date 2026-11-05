@@ -7,7 +7,7 @@
 .tabs a:focus-visible { outline:3px solid #a47d43; outline-offset:-3px; }
 .toolbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin:16px 0; }
 .toolbar label { display:block; font-size:12px; font-weight:550; color:#283c32; }
-.toggle { display:flex !important; align-items:center; gap:9px; min-height:44px; cursor:pointer; }
+.toolbar .toggle { display:flex; align-items:center; gap:9px; min-height:44px; cursor:pointer; }
 .toggle input { width:18px; height:18px; accent-color:#354e37; }
 .toolbar input:not([type=checkbox]),.toolbar select { display:block; min-height:44px; margin-top:6px; padding:8px 12px; background:#fffefa; border:1px solid #d8ddcf; border-radius:7px; font-size:14px; color:#283c32; min-width:180px; }
 .tableWrap { overflow-x:auto; border:1px solid #e0e3d6; border-radius:10px; background:#fffefa; contain:inline-size; } /* contain: a wide table scrolls here instead of widening the admin layout */
