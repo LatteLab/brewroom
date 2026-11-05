@@ -11,7 +11,9 @@
     "db:studio": "drizzle-kit studio",
     "typecheck": "next typegen && tsc --noEmit",
     "test:pos": "tsx --test tests/pos.test.ts",
-    "test:pos:db": "tsx --test tests/pos-db.test.ts"
+    "test:pos:db": "tsx --test tests/pos-db.test.ts",
+    "test:inventory": "tsx --test tests/inventory.test.ts",
+    "test:inventory:db": "tsx --test tests/inventory-db.test.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",

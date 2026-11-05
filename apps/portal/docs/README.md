@@ -23,11 +23,12 @@ docs/specs/YYYY-MM-DD-concise-topic/
 
 This layout is the repository convention. It works with poteto mode, which separates design from execution but does not require these exact directories. Older Superpowers records used separate `specs` and `plans` directories; they now follow this layout too. A saved plan does not mean its application changes are implemented or authorize a release.
 
-### Current feature
+### Current features
 
 | Feature | Design | Implementation plan |
 | --- | --- | --- |
 | Admin-only POS and drink analytics | [Current design](specs/2026-10-29-drink-analytics/design.md) | [Delivery and verification history](specs/2026-10-29-drink-analytics/implementation-plan.md) |
+| Inventory tab synchronized with POS, implemented locally | [Design](specs/2026-11-05-inventory/design.md) | [Implementation plan](specs/2026-11-05-inventory/implementation-plan.md) |
 
 POS logging, overview analytics, menu archiving, and removed-log kerb cleanup are merged into `main`. The three database migrations were applied on October 29, 2026. The admin-only access follow-up removes the earlier non-admin cashier allowlist. A merged commit or applied migration does not establish that the newest production UI was verified.
 

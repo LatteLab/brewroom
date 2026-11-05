@@ -1,0 +1,91 @@
+/* Inventory tab. Page structure, buttons, forms and stats come from ../pos/pos.module.css so the two tools match. */
+.header { display:flex; align-items:center; gap:10px; }
+.header h1 { font-size:28px; font-weight:600; letter-spacing:-.7px; }
+.tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid #dedfd3; margin:18px 0 6px; scrollbar-width:thin; }
+.tabs a { white-space:nowrap; padding:11px 14px; font-size:13px; color:#596550; text-decoration:none; border-bottom:2px solid transparent; min-height:44px; display:flex; align-items:center; }
+.tabs a[aria-current=page] { color:#283c32; border-bottom-color:#354e37; font-weight:600; }
+.tabs a:focus-visible { outline:3px solid #a47d43; outline-offset:-3px; }
+.toolbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin:16px 0; }
+.toolbar label { display:block; font-size:12px; font-weight:550; color:#283c32; }
+.toolbar .toggle { display:flex; align-items:center; gap:9px; min-height:44px; cursor:pointer; }
+.toggle input { width:18px; height:18px; accent-color:#354e37; }
+.toolbar input:not([type=checkbox]),.toolbar select { display:block; min-height:44px; margin-top:6px; padding:8px 12px; background:#fffefa; border:1px solid #d8ddcf; border-radius:7px; font-size:14px; color:#283c32; min-width:180px; }
+.tableWrap { overflow-x:auto; border:1px solid #e0e3d6; border-radius:10px; background:#fffefa; contain:inline-size; } /* contain: a wide table scrolls here instead of widening the admin layout */
+.table { width:100%; border-collapse:collapse; font-size:13px; }
+.table th { text-align:left; font-size:11px; font-weight:600; color:#697264; padding:10px 12px; border-bottom:1px solid #e0e4d8; white-space:nowrap; background:#f7f8f2; }
+.table td { padding:10px 12px; border-bottom:1px solid #eceee6; vertical-align:middle; }
+.table tr:last-child td { border-bottom:0; }
+.table .r { text-align:right; font-variant-numeric:tabular-nums; }
+.table input:not([type=checkbox]),.table select { min-height:40px; padding:6px 8px; border:1px solid #d8ddcf; border-radius:6px; background:#fffefa; font-size:14px; color:#283c32; }
+.table input[type=number] { width:96px; text-align:right; }
+.short td { background:#fff6f1; }
+.sub { display:block; font-size:11px; color:#697264; margin-top:3px; line-height:1.5; }
+.pill { display:inline-block; font-size:11px; font-weight:550; padding:3px 9px; border-radius:99px; white-space:nowrap; border:1px solid transparent; }
+.ok { background:#e5ebdb; color:#354e37; border-color:#c9d6bb; }
+.warn { background:#fbf0dc; color:#7a5414; border-color:#ecd5aa; }
+.bad { background:#fde8e1; color:#943b29; border-color:#efc4b5; }
+.quiet { background:#f0f1eb; color:#697264; border-color:#dfe1d8; }
+.banner { background:#fbf6e9; border:1px solid #ecdcb4; color:#6a4f17; padding:12px 14px; border-radius:8px; font-size:13px; line-height:1.6; margin:14px 0; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; }
+.card { display:block; background:#fffefa; border:1px solid #e0e3d6; border-radius:10px; padding:16px; text-decoration:none; color:#283c32; }
+.card:hover { border-color:#b9c7aa; }
+.card:focus-visible { outline:3px solid #a47d43; outline-offset:3px; }
+.card h3 { font-size:15px; font-weight:600; margin-bottom:8px; overflow-wrap:anywhere; }
+.meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color:#697264; }
+.draft { border-style:dashed; }
+.columns { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:28px; margin-top:16px; }
+.steps { padding-left:22px; display:grid; gap:10px; font-size:13px; line-height:1.7; }
+.stepEdit { display:flex; gap:8px; align-items:start; }
+.stepEdit textarea,.notes { flex:1; width:100%; min-height:70px; padding:8px 10px; border:1px solid #d8ddcf; border-radius:7px; background:#fffefa; font-size:14px; color:#283c32; font-family:inherit; }
+.stepButtons { display:flex; flex-direction:column; gap:4px; }
+.iconButton { min-width:40px; min-height:40px; border:1px solid #d5ddcc; border-radius:7px; background:#fffefa; color:#354e37; cursor:pointer; display:inline-grid; place-items:center; }
+.iconButton:disabled { opacity:.4; cursor:default; }
+.iconButton:focus-visible { outline:3px solid #a47d43; outline-offset:2px; }
+.dialogGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.dialogGrid label { display:block; font-size:12px; font-weight:550; }
+.dialogGrid input,.dialogGrid select { display:block; width:100%; min-height:44px; margin-top:6px; padding:8px 10px; border:1px solid #d8ddcf; border-radius:7px; background:#fffefa; font-size:14px; }
+.textarea { width:100%; min-height:160px; font-family:var(--font-geist-mono),monospace; font-size:12px; padding:10px; border:1px solid #d8ddcf; border-radius:7px; background:#fffefa; }
+.panel { background:#fffefa; border:1px solid #e0e3d6; border-radius:10px; padding:18px; max-width:760px; margin-top:14px; }
+.panel h2 { font-size:16px; font-weight:600; margin-bottom:6px; }
+.list { font-size:12px; color:#697264; line-height:1.7; padding-left:18px; margin-top:8px; }
+
+@media(max-width:1100px) { .columns { grid-template-columns:1fr; } }
+/* Phones: tables become labelled cards so nothing scrolls sideways. */
+@media(max-width:640px) {
+  .stack thead { display:none; }
+  .stack, .stack tbody, .stack tr, .stack td { display:block; width:100%; }
+  .stack tr { border-bottom:1px solid #e0e4d8; padding:10px 4px; }
+  .stack tr:last-child { border-bottom:0; }
+  .stack td { border:0; padding:5px 10px; display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:right; }
+  .stack td::before { content:attr(data-label); font-size:11px; font-weight:600; color:#697264; text-align:left; flex-shrink:0; }
+  .stack td[data-label=""]::before { content:none; }
+  .stack td:first-child { display:block; text-align:left; font-weight:600; }
+  .stack td:first-child::before { content:none; }
+  .stack .r { text-align:right; }
+  .toolbar input:not([type=checkbox]),.toolbar select { min-width:0; width:100%; }
+  .toolbar label { flex:1 1 140px; }
+}
+
+/* Running-low warning: deliberately loud, because it is read across a busy counter. */
+.runningLow { background:#fff1e6; border:2px solid #c2410c; color:#7c2d12; border-radius:12px; padding:18px 20px; margin:16px 0; }
+.runningLow h2 { display:flex; align-items:center; gap:10px; font-size:22px; font-weight:700; letter-spacing:-.3px; margin:0 0 10px; color:#9a3412; }
+.runningLow h2 span,.runningLow li strong span { font-weight:500; color:#9a3412; }
+.runningLow ul { display:grid; gap:8px; list-style:none; padding:0; margin:0; }
+.runningLow li { display:grid; gap:2px; font-size:14px; line-height:1.5; }
+.runningLow li strong { font-size:17px; }
+.runningLowCompact h2 { font-size:18px; }
+.runningLowCompact li strong { font-size:15px; }
+.optionRow { display:grid; grid-template-columns:minmax(120px,1.4fr) repeat(3,minmax(80px,1fr)) auto auto; gap:8px; align-items:end; padding:10px 0; border-top:1px solid #eceee6; }
+.optionRow label { font-size:11px; font-weight:550; }
+.optionRow input:not([type=radio]) { display:block; width:100%; min-height:40px; margin-top:4px; padding:6px 8px; border:1px solid #d8ddcf; border-radius:6px; background:#fffefa; font-size:14px; }
+.optionRow .radio { display:flex; align-items:center; gap:6px; min-height:40px; font-size:12px; }
+.countGroup { display:grid; gap:6px; }
+.countGroup label { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:11px; color:#697264; }
+@media(max-width:640px) { .optionRow { grid-template-columns:1fr 1fr; } }
+.summary { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:13px; color:#596550; margin:10px 0 4px; }
+.summary strong { color:#283c32; font-weight:600; }
+.makeList { display:grid; gap:8px; margin-top:10px; }
+.makeRow { display:flex; justify-content:space-between; gap:16px; align-items:baseline; font-size:13px; border-top:1px solid #eceee6; padding-top:8px; }
+.makeRow:first-child { border-top:0; padding-top:0; }
+.makeRow > span:last-child { text-align:right; }
+@media(max-width:640px) { .makeRow { flex-direction:column; gap:2px; } .makeRow > span:last-child { text-align:left; } }
