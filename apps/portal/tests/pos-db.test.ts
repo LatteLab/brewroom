@@ -19,7 +19,7 @@ const staff = { id: 'pos-test-staff', email: 'pos-staff@example.invalid', isAdmi
 const outsider = { id: 'outsider', email: 'no-access@example.invalid', isAdmin: false };
 
 before(async () => {
-  await client.unsafe('DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
+  await client.unsafe('DROP TABLE IF EXISTS inventory_menu_links; DROP TABLE IF EXISTS inventory_items; DROP TABLE IF EXISTS inventory_recipes; DROP TABLE IF EXISTS inventory_equipment; DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
   await client.unsafe(`CREATE TABLE users (id text PRIMARY KEY, email text UNIQUE); INSERT INTO users VALUES ('pos-test-admin','pos-admin@example.invalid'),('pos-test-staff','pos-staff@example.invalid');`);
   const migrations = (await readdir(new URL('../lib/db/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
   assert(migrations.length); for (const migration of migrations) await client.unsafe(await readFile(new URL(`../lib/db/migrations/${migration}`, import.meta.url), 'utf8'));

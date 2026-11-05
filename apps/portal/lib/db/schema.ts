@@ -1,7 +1,8 @@
-import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, real, unique, boolean, check, json, jsonb, index, uniqueIndex, foreignKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, real, doublePrecision, unique, boolean, check, json, jsonb, index, uniqueIndex, foreignKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { AdapterAccountType } from 'next-auth/adapters';
 import type { Configuration, MenuOptions } from '../validations/pos';
+import type { EquipmentFields, ItemFields, RecipeBody } from '../validations/inventory';
 
 // ============================================================================
 // Enums
@@ -307,3 +308,90 @@ export const posDrinkLogs = pgTable('pos_drink_logs', {
 export type PosEvent = typeof posEvents.$inferSelect;
 export type PosMenuItem = typeof posMenuItems.$inferSelect;
 export type PosDrinkLog = typeof posDrinkLogs.$inferSelect;
+
+// ============================================================================
+// Inventory (ported from LatteLab/inventory-system-draft)
+// ============================================================================
+// Separate `inventory_` tables. They read POS menu items and drink logs but never write to POS tables.
+
+export const inventoryItems = pgTable('inventory_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull().unique('inventory_item_name'),
+  category: text('category').$type<ItemFields['category']>().notNull(),
+  unit: text('unit').$type<ItemFields['unit']>().notNull(),
+  bagSize: doublePrecision('bag_size').default(0).notNull(),
+  sealedBags: doublePrecision('sealed_bags').default(0).notNull(),
+  openBag: doublePrecision('open_bag').default(0).notNull(),
+  countedAt: timestamp('counted_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  par: doublePrecision('par').default(0).notNull(),
+  costPerUnit: doublePrecision('cost_per_unit').default(0).notNull(),
+  supplier: text('supplier').default('').notNull(),
+  notes: text('notes').default('').notNull(),
+  version: integer('version').default(1).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedBy: text('updated_by').references(() => users.id),
+}, table => [
+  check('inventory_item_unit', sql`${table.unit} IN ('ml', 'g', 'each')`),
+  check('inventory_item_name_present', sql`length(trim(${table.name})) > 0`),
+  check('inventory_item_amounts', sql`${table.bagSize} >= 0 AND ${table.sealedBags} >= 0 AND ${table.openBag} >= 0 AND ${table.par} >= 0 AND ${table.costPerUnit} >= 0`),
+  check('inventory_item_version', sql`${table.version} > 0`),
+]).enableRLS();
+
+export const inventoryRecipes = pgTable('inventory_recipes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  slug: text('slug').notNull().unique('inventory_recipe_slug'),
+  published: jsonb('published').$type<RecipeBody>(),
+  draft: jsonb('draft').$type<RecipeBody>(),
+  publishedVersion: integer('published_version').default(0).notNull(),
+  publishedAt: timestamp('published_at', { withTimezone: true, mode: 'date' }),
+  publishedBy: text('published_by').references(() => users.id),
+  version: integer('version').default(1).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedBy: text('updated_by').references(() => users.id),
+}, table => [
+  check('inventory_recipe_body', sql`${table.published} IS NOT NULL OR ${table.draft} IS NOT NULL`),
+  check('inventory_recipe_version', sql`${table.version} > 0 AND ${table.publishedVersion} >= 0`),
+]).enableRLS();
+
+export const inventoryEquipment = pgTable('inventory_equipment', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull().unique('inventory_equipment_name'),
+  category: text('category').$type<EquipmentFields['category']>().notNull(),
+  quantity: integer('quantity').default(1).notNull(),
+  status: text('status').$type<EquipmentFields['status']>().default('ok').notNull(),
+  location: text('location').default('').notNull(),
+  custodian: text('custodian').default('').notNull(),
+  serial: text('serial').default('').notNull(),
+  notes: text('notes').default('').notNull(),
+  lastCheckedAt: text('last_checked_at').default('').notNull(),
+  version: integer('version').default(1).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedBy: text('updated_by').references(() => users.id),
+}, table => [
+  check('inventory_equipment_status', sql`${table.status} IN ('ok', 'repair', 'loaned', 'missing', 'retired')`),
+  check('inventory_equipment_quantity', sql`${table.quantity} >= 0`),
+  check('inventory_equipment_name_present', sql`length(trim(${table.name})) > 0`),
+  check('inventory_equipment_version', sql`${table.version} > 0`),
+]).enableRLS();
+
+// One row per POS menu drink that inventory knows about: which recipe it pours and how many are planned.
+// Cascades with the menu item so deleting a POS event is never blocked by inventory.
+export const inventoryMenuLinks = pgTable('inventory_menu_links', {
+  menuItemId: uuid('menu_item_id').primaryKey(),
+  eventId: uuid('event_id').notNull(),
+  recipeId: uuid('recipe_id').references(() => inventoryRecipes.id, { onDelete: 'set null' }),
+  plannedServings: integer('planned_servings').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedBy: text('updated_by').references(() => users.id),
+}, table => [
+  foreignKey({ name: 'inventory_link_menu_item', columns: [table.eventId, table.menuItemId], foreignColumns: [posMenuItems.eventId, posMenuItems.id] }).onDelete('cascade'),
+  check('inventory_link_planned', sql`${table.plannedServings} >= 0`),
+  index('inventory_link_event').on(table.eventId),
+  index('inventory_link_recipe').on(table.recipeId),
+]).enableRLS();
+
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InventoryRecipe = typeof inventoryRecipes.$inferSelect;
+export type InventoryEquipment = typeof inventoryEquipment.$inferSelect;
+export type InventoryMenuLink = typeof inventoryMenuLinks.$inferSelect;
