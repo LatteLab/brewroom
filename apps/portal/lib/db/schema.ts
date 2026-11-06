@@ -1,7 +1,8 @@
-import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, real, unique, boolean, check, json, jsonb, index, uniqueIndex, foreignKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, uuid, primaryKey, integer, numeric, real, unique, boolean, check, json, jsonb, index, uniqueIndex, foreignKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { AdapterAccountType } from 'next-auth/adapters';
 import type { Configuration, MenuOptions } from '../validations/pos';
+import type { IngredientCondition, InventoryUnit } from '../validations/inventory';
 
 // ============================================================================
 // Enums
@@ -307,3 +308,37 @@ export const posDrinkLogs = pgTable('pos_drink_logs', {
 export type PosEvent = typeof posEvents.$inferSelect;
 export type PosMenuItem = typeof posMenuItems.$inferSelect;
 export type PosDrinkLog = typeof posDrinkLogs.$inferSelect;
+
+export const inventoryItems = pgTable('inventory_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull().unique('inventory_item_name'),
+  unit: text('unit').$type<InventoryUnit>().notNull(),
+  onHand: numeric('on_hand', { mode: 'number' }).default(0).notNull(),
+  lowAt: numeric('low_at', { mode: 'number' }).default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedBy: text('updated_by').notNull().references(() => users.id),
+  version: integer('version').default(1).notNull(),
+}, table => [
+  check('inventory_item_name_present', sql`length(trim(${table.name})) > 0`),
+  check('inventory_item_unit', sql`${table.unit} IN ('ml', 'g', 'each')`),
+  check('inventory_item_on_hand', sql`${table.onHand} >= 0`),
+  check('inventory_item_low_at', sql`${table.lowAt} >= 0`),
+]).enableRLS();
+
+export const posMenuIngredients = pgTable('pos_menu_ingredients', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  menuItemId: uuid('menu_item_id').notNull().references(() => posMenuItems.id),
+  itemId: uuid('item_id').notNull().references(() => inventoryItems.id),
+  quantity: numeric('quantity', { mode: 'number' }).notNull(),
+  appliesWhen: text('applies_when').$type<IngredientCondition>().default('always').notNull(),
+  scalesWithSyrup: boolean('scales_with_syrup').default(false).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+}, table => [
+  check('pos_ingredient_quantity', sql`${table.quantity} > 0`),
+  check('pos_ingredient_condition', sql`${table.appliesWhen} IN ('always', 'hot', 'iced', 'whole', 'oat')`),
+  index('pos_ingredient_menu_item').on(table.menuItemId, table.sortOrder),
+  index('pos_ingredient_item').on(table.itemId),
+]).enableRLS();
+
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type PosMenuIngredient = typeof posMenuIngredients.$inferSelect;
