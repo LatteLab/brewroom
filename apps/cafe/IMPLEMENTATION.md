@@ -205,3 +205,4 @@ User approved merging all preview work to main without squashing and deploying. 
 ## Taste the Rainbow signup — 2026-11-10
 
 - Added “Sign up for Taste the Rainbow: Moonwake Edition!” as the first /join button, linking to the supplied https://tinyurl.com/rainbowfall26 URL with the existing external-link styling.
+- Added /rainbow as a temporary redirect directly to the public Google Form for "Taste the Rainbow: Moonwake Edition," verified by resolving the supplied TinyURL and reading the form title. The existing /contact redirect is unchanged.
