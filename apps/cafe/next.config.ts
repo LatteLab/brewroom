@@ -6,7 +6,7 @@ const config: NextConfig = {
     return [
       { source: "/contact", destination: "/join", permanent: true },
       {
-        source: "/rainbow",
+        source: "/rainbowfall26",
         destination:
           "https://docs.google.com/forms/d/e/1FAIpQLSehksMqyMcjoGBzjVTWztFLLfGuS73e6vxILwOYKr8vNDK6oA/viewform",
         permanent: false,
