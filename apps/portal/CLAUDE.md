@@ -106,6 +106,8 @@ lib/
 - `pos_events` — POS event name and Eastern service window, separate from registration events
 - `pos_event_menu_items` — Event-specific drinks, options/defaults, ordering, availability, and archive timestamp
 - `pos_drink_logs` — Recorded-order snapshots, quantities, retry IDs, corrections, voids, and optional kerbs
+- `inventory_items` — Admin-maintained supplies with on-hand amount and low level
+- `pos_menu_ingredients` — Per-drink ingredient lines used only to estimate event usage
 
 ## POS contract
 
@@ -113,7 +115,7 @@ All POS pages, queries, actions, and exports require an admin. There is no separ
 
 New events start with empty menus. The kiosk logs one configured drink per submission without a cart. Menu removal archives the definition and preserves past orders. Log removal voids the entry, excludes it from analytics, clears its kerb, and hides it by default. Show removed entries reveals the history. Corrections clear the superseded row's kerb and retain the optional kerb on the valid replacement.
 
-Use `America/New_York` for date entry/display and server-assigned `recorded_at` for order timing. Do not infer serving time, waiting time, or identity from these records. Preserve retry IDs, original order timestamps, event-before-log locking, and historical multi-drink quantities. Inventory and registration retirement are separate changes. See the [current design](docs/specs/2026-10-29-drink-analytics/design.md) for the full contract.
+Use `America/New_York` for date entry/display and server-assigned `recorded_at` for order timing. Do not infer serving time, waiting time, or identity from these records. Preserve retry IDs, original order timestamps, event-before-log locking, and historical multi-drink quantities. Inventory is estimate-only: logging never changes stock (see [inventory design](docs/specs/2026-11-04-pos-inventory/design.md)). Registration retirement is a separate change. See the [current design](docs/specs/2026-10-29-drink-analytics/design.md) for the full contract.
 
 ## Key Patterns
 

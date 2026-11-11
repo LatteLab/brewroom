@@ -65,3 +65,27 @@ test('order gaps use distinct valid submissions, sorted by receipt time', () => 
   assert.equal(report.averageOrderGapMs, 90000);
   assert.equal(buildAnalytics([base, { ...later, recordedAt: base.recordedAt }], event, 15).averageOrderGapMs, 0);
 });
+
+test('inventory status and usage estimates follow logged options', async () => {
+  const { stockStatus, estimateUsage, ingredientApplies } = await import('../lib/inventory');
+  assert.equal(stockStatus({ onHand: 0, lowAt: 5 }), 'Out');
+  assert.equal(stockStatus({ onHand: 4, lowAt: 5 }), 'Low');
+  assert.equal(stockStatus({ onHand: 5, lowAt: 5 }), 'OK');
+  assert.equal(ingredientApplies('iced', { temperature: 'Hot', milk: 'Oat', syrup: 50 }), false);
+  const latte = randomUUID(); const mocha = randomUUID();
+  const ingredients = [
+    { menuItemId: latte, itemId: 'beans', quantity: 18, appliesWhen: 'always' as const, scalesWithSyrup: false },
+    { menuItemId: latte, itemId: 'whole', quantity: 200, appliesWhen: 'whole' as const, scalesWithSyrup: false },
+    { menuItemId: latte, itemId: 'oat', quantity: 200, appliesWhen: 'oat' as const, scalesWithSyrup: false },
+    { menuItemId: latte, itemId: 'syrup', quantity: 20, appliesWhen: 'always' as const, scalesWithSyrup: true },
+    { menuItemId: latte, itemId: 'hot-cup', quantity: 1, appliesWhen: 'hot' as const, scalesWithSyrup: false },
+    { menuItemId: latte, itemId: 'iced-cup', quantity: 1, appliesWhen: 'iced' as const, scalesWithSyrup: false },
+  ];
+  const { used, drinksWithoutIngredients } = estimateUsage([
+    { menuItemId: latte, drinkName: 'Latte', quantity: 2, configuration: { temperature: 'Iced', milk: 'Oat', syrup: 50, ice: 'Full' } },
+    { menuItemId: latte, drinkName: 'Latte', quantity: 1, configuration: { temperature: 'Hot', milk: 'Whole', syrup: 100 } },
+    { menuItemId: mocha, drinkName: 'Mocha', quantity: 3, configuration: { temperature: 'Hot', milk: 'Whole', syrup: 100 } },
+  ], ingredients);
+  assert.deepEqual(Object.fromEntries(used), { beans: 54, oat: 400, syrup: 40, 'iced-cup': 2, whole: 200, 'hot-cup': 1 });
+  assert.deepEqual(drinksWithoutIngredients, [{ name: 'Mocha', drinks: 3 }]);
+});
