@@ -44,6 +44,10 @@ export default function Join() {
       <section className="join-content">
         <h1 className="join-heading">Find your way into Latte Lab!</h1>
         <div className="join-links">
+          <FormLink
+            href={site.rainbowSignupUrl}
+            label="Sign up for Taste the Rainbow: Moonwake Edition!"
+          />
           <FormLink href={site.membershipUrl} label="Join the membership mailing list :DD" />
           <FormLink href={site.calendarUrl} label="Add Latte Lab Events to your GCal!!" />
         </div>

@@ -201,3 +201,7 @@ User approved merging all preview work to main without squashing and deploying. 
 
 - Capped the team grid at 1,040px, with four columns from 1,024px, three on smaller tablets, and the existing two-column mobile layout. Reduced desktop gaps to 24px and name text to 22px; laptop and desktop portraits top out around 209px wide while retaining their framing and beaver corners.
 - Updated responsive image sizes for the narrower cards and eager-loaded all four first-row portraits.
+
+## Taste the Rainbow signup — 2026-11-10
+
+- Added “Sign up for Taste the Rainbow: Moonwake Edition!” as the first /join button, linking to the supplied https://tinyurl.com/rainbowfall26 URL with the existing external-link styling.
