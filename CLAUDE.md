@@ -2,6 +2,8 @@
 
 Latte Lab's public website and member portal share this repository and deploy separately.
 
+This repository is the source for both Vercel projects. The standalone `LatteLab/cafe` repository is historical; make public website changes here in `apps/cafe`. Pushes to `main` trigger production deployments through Vercel's Git integration. Follow `docs/deployment.md` to verify the matching commit and distinguish local build restrictions from deployment failures.
+
 - `apps/cafe` is the public website at lattelab.org. Read `apps/cafe/CLAUDE.md` and `AGENTS.md` for design and content guidance.
 - `apps/portal` is the member and admin app at app.lattelab.org. Read `apps/portal/CLAUDE.md` for auth, data, and workflow rules.
 
