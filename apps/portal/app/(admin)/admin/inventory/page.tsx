@@ -19,7 +19,7 @@ export default async function InventoryStockPage() {
     <p className={posStyles.muted}>Drinks logged in POS come off <strong>On hand</strong> as soon as they are recorded. Use <strong>Save count</strong> after a physical count.</p>
     <DrinkWarnings warnings={warnings} />
     {items.length > 0 && <p className={styles.summary}>
-      <span><strong>{items.length}</strong> items</span>
+      <span><strong>{items.length}</strong> {items.length === 1 ? 'item' : 'items'}</span>
       <span><strong>{low}</strong> at or below par</span>
       <span><strong>{fmtMoney(value)}</strong> on hand</span>
     </p>}
