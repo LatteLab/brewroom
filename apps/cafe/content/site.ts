@@ -4,6 +4,7 @@ export const site = {
   email: "lattelab-exec@mit.edu",
   linkedin: "https://www.linkedin.com/company/latte-lab/",
   instagram: "https://www.instagram.com/mitlattelab/",
+  rainbowSignupUrl: "https://tinyurl.com/rainbowfall26",
   membershipUrl:
     "https://docs.google.com/forms/d/e/1FAIpQLScUINiiG82aLoLGDPoFYIuQBFsOPn4rWHA4WUgTixA8x6ONIg/viewform",
   applicationUrl:

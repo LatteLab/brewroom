@@ -2,6 +2,34 @@
 
 Cafe and Portal use separate Vercel projects connected to `LatteLab/brewroom`. Cafe uses `apps/cafe`; the Brewroom project serves Portal from `apps/portal`. Keep secrets and service configuration scoped to the app and environment that use them.
 
+## Automatic deployments
+
+Push application changes to `LatteLab/brewroom`. The standalone `LatteLab/cafe` repository is historical and is no longer connected to the production website.
+
+- A push to Brewroom `main` triggers production deployments through Vercel's Git integration. After a successful build, Vercel assigns the project's production domains.
+- Other branches create preview deployments. They do not replace the production site.
+- Cafe deploys from `apps/cafe` to `lattelab.org`. The Vercel project named `brewroom` deploys Portal from `apps/portal` to `app.lattelab.org`.
+
+One push can trigger both projects. Vercel can skip unaffected projects according to their monorepo and ignored-build settings. On November 10, 2026, both projects automatically deployed Brewroom commit `2f56a82` successfully. No manual Vercel deployment was needed.
+
+GitHub's workspace checks and Vercel's builds run separately. A successful Git push confirms that GitHub received the commit. To confirm a release, check that the relevant Vercel deployment has the same commit SHA, is `READY`, and has its production domain assigned.
+
+## Diagnose a missing or failed deployment
+
+1. Run `git remote get-url origin` and confirm that it points to `LatteLab/brewroom`.
+2. Run `git branch --show-current` and `git rev-parse HEAD`. Confirm that the intended commit reached remote `main` for production.
+3. If Vercel has no matching deployment, inspect the project's connected repository, production branch, Git deployment settings, and ignored-build settings. Use the app's root directory from the table below.
+4. If a deployment exists and failed, inspect that deployment's build logs. A local build error alone does not establish a Vercel failure.
+5. If the deployment is `READY` but the site looks stale, check its domain assignments and test the affected production URL.
+
+### Local build restrictions
+
+Both apps use `next/font/google`. A build without cached fonts needs outbound access to Google Fonts. Next.js downloads and bundles the fonts during the build; visitors receive the fonts from the deployment. If a local build cannot fetch fonts, allow network access for the build or configure the environment's approved proxy. See [Next.js font optimization](https://nextjs.org/docs/app/getting-started/fonts).
+
+If a restricted local environment reports a Turbopack `EPERM` error while binding a port, verify Cafe with `pnpm --filter @lattelab/cafe build --webpack`. This command uses webpack for that invocation. Keep the normal Vercel build command unless its own logs show a problem.
+
+See [Vercel's Git deployment documentation](https://vercel.com/docs/git) for production and preview behavior.
+
 ## Configuration reference
 
 These are the monorepo's intended settings. Inspect the current project before changing overrides; this guide is not a live Vercel snapshot.
