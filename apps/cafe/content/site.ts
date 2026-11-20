@@ -16,6 +16,7 @@ export const navigation = [
   { href: "/about", label: "About" },
   { href: "/team", label: "Team" },
   { href: "/scrapbook", label: "Scrapbook" },
+  { href: "/recipes", label: "Recipes" },
   { href: "/news", label: "News" },
 ];
 export const team = [
