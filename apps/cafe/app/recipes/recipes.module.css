@@ -1,0 +1,826 @@
+.page {
+  --brass-dark: #79603b;
+  --brass: #ad8e55;
+  --brass-light: #e4d3a4;
+  /* One rhythm for paper, metal, and artwork. All motion is finite. */
+  --motion-fast: 140ms;
+  --motion-base: 260ms;
+  --motion-settle: 620ms;
+  --motion-arrive: 820ms;
+  --motion-stagger: 90ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-paper: cubic-bezier(0.22, 0.8, 0.32, 1);
+  padding-bottom: 100px;
+}
+
+.page :global(.page-intro) {
+  padding-bottom: 48px;
+}
+
+.page :global(.eyebrow) {
+  font-size: 12px;
+}
+
+.selection {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.railHeading,
+.railFootnote {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.collectionLabel {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.collectionLabel > span {
+  margin-inline: 8px;
+}
+
+.swipeHint {
+  display: none;
+}
+
+.rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  list-style: none;
+  row-gap: 54px;
+  margin: 32px 0 12px;
+  padding: 0 24px;
+}
+
+.hanger {
+  --paper-angle: -0.8deg;
+  --paper-side: -1;
+  position: relative;
+  min-width: 0;
+  padding-top: 22px;
+}
+
+.hanger:nth-child(even) {
+  --paper-angle: 0.8deg;
+  --paper-side: 1;
+}
+
+.paperMotion {
+  position: relative;
+  height: 100%;
+  transform-origin: 50% -18px;
+}
+
+.paperMotion::before {
+  content: "";
+  position: absolute;
+  inset: 20px 5px -8px;
+  background: var(--ink);
+  border-radius: 10px;
+  filter: blur(12px);
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.hanger[data-selected="true"] .paperMotion::before {
+  opacity: 0.13;
+  transform: translateY(8px) scaleX(0.97);
+}
+
+.railLight {
+  position: absolute;
+  z-index: 1;
+  top: 2px;
+  left: -12px;
+  right: -12px;
+  height: 2px;
+  background: var(--paper);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Adjacent segments meet to form one rail; wrapped rows get their own rail. */
+.hanger::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -12px;
+  right: -12px;
+  height: 14px;
+  border: 1px solid var(--brass-dark);
+  border-inline: 0;
+  background: linear-gradient(
+    180deg,
+    var(--brass) 0%,
+    var(--brass-light) 24%,
+    #c8b17a 40%,
+    var(--brass) 67%,
+    var(--brass-dark) 100%
+  );
+  box-shadow:
+    0 4px 5px #35251d20,
+    inset 0 1px #fffdf77a;
+}
+
+.hanger:first-child::before {
+  left: -24px;
+  border-radius: 5px 0 0 5px;
+  border-left: 1px solid var(--brass-dark);
+}
+
+.hanger:last-child::before {
+  right: -24px;
+  border-radius: 0 5px 5px 0;
+  border-right: 1px solid var(--brass-dark);
+}
+
+.clip {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  left: calc(50% - 14px);
+  width: 28px;
+  height: 45px;
+  border: 1px solid var(--brass-dark);
+  border-radius: 5px 5px 7px 7px;
+  background: linear-gradient(
+    90deg,
+    #90723f,
+    #d8c18b 14%,
+    #f0e2be 30%,
+    #bd9d62 76%,
+    #90723f
+  );
+  box-shadow:
+    1px 3px 3px #35251d30,
+    inset 0 1px #fffdf7b0;
+  pointer-events: none;
+  overflow: hidden;
+  transform-origin: 50% 8px;
+}
+
+.clipShine {
+  position: absolute;
+  inset: -5px 0;
+  background: linear-gradient(
+    105deg,
+    transparent 25%,
+    #fffdf7b0 50%,
+    transparent 75%
+  );
+  transform: translateX(-35px);
+  opacity: 0;
+}
+
+.clip::before {
+  content: "";
+  position: absolute;
+  inset: 6px 8px 15px;
+  border: 1px solid #79603b9c;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #8c7044, #cfb981);
+  box-shadow: inset 1px 1px 2px #35251d30;
+}
+
+.clip::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  left: 3px;
+  right: 3px;
+  height: 3px;
+  border-top: 1px solid #f8edcd;
+  border-bottom: 1px solid #79603b;
+}
+
+.ticket {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 26px 22px 0;
+  border: 1px solid var(--line);
+  border-radius: 2px 2px 0 0;
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    #79603b05 3px 4px
+  );
+  color: var(--ink);
+  text-align: left;
+  box-shadow:
+    1px 5px 7px #35251d0c,
+    0 14px 18px -14px #35251d45;
+  transform: rotate(var(--paper-angle));
+  transform-origin: 50% 0;
+}
+
+.ticket::after {
+  content: "";
+  position: absolute;
+  inset: auto -1px -5px;
+  height: 5px;
+  background: radial-gradient(
+      circle at 50% 100%,
+      transparent 3px,
+      var(--paper) 3.5px
+    )
+    0 0 / 8px 5px repeat-x;
+}
+
+.hanger .ticket[aria-pressed="true"] {
+  transform: translateY(-10px) rotate(0) scale(1.012);
+  box-shadow:
+    0 0 0 2px var(--green),
+    0 18px 24px -12px #35251d38;
+}
+
+.ticket:focus-visible {
+  outline: 3px solid var(--rust);
+  outline-offset: 7px;
+}
+
+.ticketTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: #665e51;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticketImage {
+  align-self: center;
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  margin: 12px 0 6px;
+}
+
+.ticketName {
+  font-family: var(--font-heading);
+  font-size: clamp(24px, 2.5vw, 31px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+
+.ticketFlavor {
+  flex: 1;
+  margin: 8px 0 20px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ticketState {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border-top: 1px dashed var(--line);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ticket[aria-pressed="true"] .ticketState {
+  justify-content: flex-start;
+}
+
+.railFootnote {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.railFootnote a {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding-block: 8px;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: clamp(40px, 6vw, 85px);
+  max-width: 1100px;
+  margin: 64px auto 0;
+  padding-top: 52px;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 24px;
+}
+
+.detail:focus-visible {
+  outline: 3px solid var(--rust);
+  outline-offset: 8px;
+}
+
+.drinkArt {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 16px 32px;
+  background: var(--sage);
+  border-radius: 45% 45% 3px 3px;
+}
+
+.drinkVisual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.counterStamp {
+  position: absolute;
+  right: 2px;
+  bottom: 15px;
+  width: 96px;
+  height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 3px double var(--green);
+  border-radius: 50%;
+  background: var(--cream);
+  color: var(--green);
+  text-align: center;
+  padding: 6px;
+  transform: rotate(-9deg);
+}
+
+.counterStamp > span:first-child {
+  font-family: var(--font-caveat), cursive;
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.counterStamp > span:last-child {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+
+.figureLabel {
+  margin-top: 28px;
+  color: var(--green);
+  font-size: 12px;
+  letter-spacing: 0.13em;
+}
+
+.drinkArt img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.handwritten {
+  font-family: var(--font-caveat), cursive;
+  color: var(--green);
+  font-size: clamp(23px, 2.2vw, 28px);
+  line-height: 1.2;
+}
+
+.recipeHeader h2 {
+  margin: 14px 0 18px;
+  font-size: clamp(36px, 4vw, 52px);
+}
+
+.recipeHeader h2 + p {
+  color: #665e51;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  margin: 24px 0 0;
+  padding: 18px 0;
+  border-block: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.facts dt {
+  margin-bottom: 3px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.ingredients,
+.method,
+.equipment {
+  margin-top: 30px;
+}
+
+.recipeBody h3 {
+  font-size: 25px;
+  font-weight: 500;
+}
+
+.recipeBody h4 {
+  margin: 22px 0 0;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ingredientGroup + .ingredientGroup {
+  margin-top: 28px;
+}
+
+.equipment ul,
+.notes ul {
+  margin: 14px 0 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.equipment li,
+.notes li {
+  margin-bottom: 8px;
+  padding-left: 3px;
+  line-height: 1.7;
+}
+
+.equipment {
+  font-size: 15px;
+}
+
+.ingredients ul {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+}
+
+.ingredients li {
+  display: grid;
+  grid-template-columns: 85px minmax(0, 1fr);
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+
+.ingredients li > span:first-child {
+  font-weight: 600;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+.method ol {
+  margin: 20px 0 0;
+  padding-left: 28px;
+  list-style: decimal;
+}
+
+.method li {
+  padding-left: 8px;
+  margin-bottom: 16px;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.method li::marker {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.notes {
+  margin-top: 28px;
+  padding-left: 20px;
+  border-left: 2px solid var(--brass);
+  font-size: 14px;
+  color: #665e51;
+}
+
+.notes h3 {
+  color: var(--green);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .paperMotion.entered {
+    animation: paper-arrive var(--motion-arrive) var(--ease-paper) backwards;
+    animation-delay: calc(var(--ticket-index) * var(--motion-stagger));
+  }
+  .paperMotion::before {
+    transition:
+      transform var(--motion-base) var(--ease-out),
+      opacity var(--motion-base) var(--ease-out);
+  }
+  .hanger:has(.paperMotion.entered) .railLight {
+    animation: rail-catchlight var(--motion-settle) var(--ease-out) backwards;
+    animation-delay: calc(var(--ticket-index) * var(--motion-stagger));
+  }
+  .ticket {
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  .hanger .ticket[aria-pressed="true"] {
+    animation: ticket-pull var(--motion-settle) var(--ease-paper);
+  }
+  .hanger[data-selected="true"] .clip {
+    animation: clip-grip var(--motion-settle) var(--ease-out);
+  }
+  .hanger[data-selected="true"] .clip::after {
+    animation: clip-jaw var(--motion-settle) var(--ease-out);
+  }
+  .hanger[data-selected="true"] .clipShine {
+    animation: clip-glint var(--motion-settle) var(--ease-out);
+  }
+  .ticketImage {
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  .ticket[aria-pressed="true"] .ticketImage {
+    animation: illustration-nod var(--motion-settle) var(--ease-paper);
+  }
+  .ticket[aria-pressed="true"] .ticketState > span {
+    animation: ink-stamp var(--motion-base) var(--ease-out) backwards;
+    animation-delay: var(--motion-fast);
+  }
+  .drinkVisual.entered > img {
+    animation: cup-setdown var(--motion-settle) var(--ease-paper) backwards;
+  }
+  .drinkVisual.entered .counterStamp {
+    animation: counter-stamp var(--motion-base) var(--ease-out) backwards;
+    animation-delay: var(--motion-base);
+  }
+  .ticket:focus-visible:not([aria-pressed="true"]) {
+    transform: translateY(-8px) rotate(0);
+  }
+
+  @keyframes paper-arrive {
+    0% {
+      opacity: 0;
+      transform: translateY(46px) rotate(calc(var(--paper-side) * 7deg));
+    }
+    55% {
+      opacity: 1;
+      transform: translateY(-5px) rotate(calc(var(--paper-side) * -1.4deg));
+    }
+    78% {
+      transform: translateY(2px) rotate(calc(var(--paper-side) * 0.6deg));
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) rotate(0);
+    }
+  }
+  @keyframes ticket-pull {
+    0% {
+      transform: translateY(0) rotate(var(--paper-angle));
+    }
+    38% {
+      transform: translateY(-23px) rotate(calc(var(--paper-side) * -1.2deg))
+        scale(1.025);
+    }
+    68% {
+      transform: translateY(-7px) rotate(calc(var(--paper-side) * 0.35deg))
+        scale(1.008);
+    }
+    100% {
+      transform: translateY(-10px) rotate(0) scale(1.012);
+    }
+  }
+  @keyframes clip-grip {
+    0%,
+    100% {
+      transform: rotate(0);
+    }
+    35% {
+      transform: rotate(calc(var(--paper-side) * -5deg));
+    }
+    65% {
+      transform: rotate(calc(var(--paper-side) * 1.5deg));
+    }
+  }
+  @keyframes clip-jaw {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    32% {
+      transform: translateY(-3px);
+    }
+    58% {
+      transform: translateY(1px);
+    }
+  }
+  @keyframes clip-glint {
+    0% {
+      opacity: 0;
+      transform: translateX(-35px);
+    }
+    40% {
+      opacity: 0.7;
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(35px);
+    }
+  }
+  @keyframes rail-catchlight {
+    0%,
+    100% {
+      opacity: 0;
+      transform: scaleX(0.25);
+    }
+    35% {
+      opacity: 0.65;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes illustration-nod {
+    0%,
+    100% {
+      transform: translateY(0) rotate(0);
+    }
+    40% {
+      transform: translateY(-8px) rotate(calc(var(--paper-side) * 5deg));
+    }
+    70% {
+      transform: translateY(1px) rotate(calc(var(--paper-side) * -1deg));
+    }
+  }
+  @keyframes ink-stamp {
+    from {
+      opacity: 0;
+      transform: scale(1.8) rotate(-20deg);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+    }
+  }
+  @keyframes cup-setdown {
+    0% {
+      opacity: 0;
+      transform: translate(18px, -12px) rotate(5deg) scale(0.94);
+    }
+    65% {
+      opacity: 1;
+      transform: translate(-2px, 2px) rotate(-1deg) scale(1.01);
+    }
+    100% {
+      opacity: 1;
+      transform: translate(0, 0) rotate(0) scale(1);
+    }
+  }
+  @keyframes counter-stamp {
+    from {
+      opacity: 0;
+      transform: rotate(-18deg) scale(1.3);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(-9deg) scale(1);
+    }
+  }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .ticket:hover:not([aria-pressed="true"]) {
+    transform: translateY(-8px) rotate(calc(var(--paper-angle) * -1))
+      scale(1.008);
+  }
+  .ticket:hover .ticketImage {
+    transform: translateY(-5px) rotate(calc(var(--paper-side) * 3deg))
+      scale(1.06);
+  }
+  .hanger:has(.ticket:hover) .paperMotion::before {
+    opacity: 0.13;
+    transform: translateY(8px) scaleX(0.97);
+  }
+  .hanger:not([data-selected="true"]):has(.ticket:hover) .clipShine {
+    animation: clip-glint var(--motion-settle) var(--ease-out);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hanger .ticket:active {
+    transform: translateY(-3px) rotate(0) scale(0.99);
+    transition-duration: var(--motion-fast);
+  }
+}
+
+@media (min-width: 801px) {
+  .hanger:nth-child(4n + 1)::before {
+    left: -24px;
+    border-left: 1px solid var(--brass-dark);
+    border-radius: 5px 0 0 5px;
+  }
+  .hanger:nth-child(4n)::before {
+    right: -24px;
+    border-right: 1px solid var(--brass-dark);
+    border-radius: 0 5px 5px 0;
+  }
+}
+
+@media (min-width: 801px) and (max-width: 1050px) {
+  .ticket {
+    padding-inline: 14px;
+  }
+  .rail {
+    column-gap: 16px;
+  }
+  .ticketTop {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 800px) {
+  .swipeHint {
+    display: inline;
+  }
+
+  .rail {
+    display: flex;
+    margin-top: 4px;
+    padding: 18px 24px 32px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 24px;
+    scrollbar-color: var(--brass) var(--cream);
+    scrollbar-width: thin;
+  }
+  .hanger {
+    flex: 0 0 clamp(204px, 65vw, 250px);
+  }
+  .paperMotion.entered {
+    animation-delay: 0s;
+  }
+}
+
+@media (max-width: 760px) {
+  .page {
+    padding-bottom: 64px;
+  }
+  .railHeading {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 40px;
+    padding-top: 32px;
+    gap: 30px;
+  }
+  .drinkFigure {
+    width: min(100%, 340px);
+    justify-self: center;
+  }
+  .drinkArt {
+    padding-block: 14px 24px;
+  }
+  .figureLabel {
+    margin-top: 20px;
+  }
+  .drinkVisual {
+    max-width: 240px;
+  }
+  .counterStamp {
+    width: 84px;
+    height: 84px;
+    right: -22px;
+    bottom: 6px;
+  }
+  .counterStamp > span:first-child {
+    font-size: 16px;
+  }
+  .railFootnote {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 359px) {
+  .facts {
+    gap: 20px;
+  }
+}

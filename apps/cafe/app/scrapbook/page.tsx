@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { PageIntro } from "@/components/page-intro";
-import { ScrapbookGallery } from "@/components/scrapbook-gallery";
+import { ScrapbookBook } from "@/components/scrapbook-book";
+import { bookPhotos, chapters } from "@/content/scrapbook-book";
+import "./scrapbook.css";
 export const metadata: Metadata = {
   title: "Our scrapbook",
   description:
@@ -10,13 +11,20 @@ export const metadata: Metadata = {
 export default function Scrapbook() {
   return (
     <main id="main" className="scrapbook-page">
-      <div className="shell">
-        <PageIntro
-          eyebrow="SAVED YOU A LITTLE MEMORY"
-          title="Our scrapbook."
-          description="Little moments, freshly brewed."
-        />
-        <ScrapbookGallery />
+      <div className="scrapbook-shell">
+        <header className="scrapbook-intro">
+          <div>
+            <h1>
+              Our <em>scrapbook.</em>
+            </h1>
+          </div>
+          <div className="scrapbook-intro-note">
+            <span>
+              {bookPhotos.length} photographs · {chapters.length} chapters
+            </span>
+          </div>
+        </header>
+        <ScrapbookBook />
       </div>
     </main>
   );

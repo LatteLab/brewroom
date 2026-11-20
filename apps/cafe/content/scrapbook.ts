@@ -45,7 +45,7 @@ export const entries: ScrapbookEntry[] = [
     caption: "A pourover lesson with Korean Momma",
     collection: "Korean Momma collaboration",
     category: "Events",
-    date: "Spring 2026",
+    date: "Fall 2025",
     alt: "Latte Lab members seated around a table for a Korean Momma x Latte Lab pourover event, with a presenter explaining brewing in front of a whiteboard",
   },
   {
