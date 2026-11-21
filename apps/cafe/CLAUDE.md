@@ -42,3 +42,5 @@ The approved social preview is app/opengraph-image.png (1200×630), with accessi
 ## Homepage and Join
 
 Homepage uses Young Serif with scoped styles in app/landing.css. About stays at /about; the homepage introduction links there. MemoryMotion fans three Polaroids out on desktop with GSAP; smaller screens and reduced motion keep normal scrolling. Join uses the supplied member wax-seal sticker and includes LinkedIn. Footer invitation links directly to the membership mailing list.
+
+Recipe tickets and detail views use transparent watercolors from `public/recipes/watercolor`. The SAAS Syrup ticket has a small-format bottle study. Its editable p5.brush sketch lives in `artwork/saas-syrup`, and visitors receive the exported image.

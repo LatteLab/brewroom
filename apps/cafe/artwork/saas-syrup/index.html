@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>SAAS syrup · watercolor study</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@2.2.2/lib/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5.brush@3.0.0/dist/p5.brush.js"></script>
+  <button id="save" disabled>Save painting as PNG</button>
+  <script>
+    /* Normalized 240 × 240 study of the club's rose syrup bottle. */
+    const settings = {
+      width: 600,
+      height: 600,
+      detail: 45,
+      transparency: 72,
+      softness: 55,
+      seed: 29,
+      background: "transparent",
+    };
+    const glass =
+      "M100 44 Q121 40 139 44 L138 68 C140 82 166 85 167 107 L167 204 Q167 214 157 215 Q120 218 82 215 Q73 214 73 204 L73 109 C73 88 97 85 100 71 Z";
+    const cap =
+      "M98 31 Q117 26 139 30 L142 33 L142 45 Q126 50 98 47 Q95 45 96 42 Z";
+    const label = "M80 135 Q119 139 159 134 L159 183 Q119 188 80 183 Z";
+    const layers = [
+      [glass, "#e9babb", 85],
+      [
+        "M75 109 Q116 115 165 107 L164 202 Q163 211 155 211 Q120 216 84 211 Q75 210 75 202 Z",
+        "#be4052",
+        187,
+      ],
+      [
+        "M78 107 Q83 87 102 78 Q106 74 106 50 L115 50 Q120 80 105 88 Q88 91 84 108 Z",
+        "#e1a2a0",
+        106,
+      ],
+      [
+        "M136 49 L136 69 Q137 78 151 86 Q165 94 165 111 L162 205 Q155 213 144 210 Q155 201 152 169 L155 109 Q156 97 145 92 Q129 81 130 67 Z",
+        "#87374b",
+        148,
+      ],
+      ["M78 111 Q115 116 161 110 L154 117 Q115 123 77 115 Z", "#8e3044", 164],
+      ["M82 119 Q89 116 90 121 L88 197 L82 203 Z", "#f8c1b8", 125],
+      ["M96 187 Q120 194 153 185 L151 202 Q133 214 96 207 Z", "#ab2543", 137],
+      [label, "#f9e5bd", 247],
+      ["M81 136 Q117 140 158 135 L158 139 Q119 144 81 139 Z", "#cba676", 104],
+      [
+        "M113 156 Q110 150 115 148 Q120 146 123 151 Q128 144 134 151 L132 159 L123 167 Z",
+        "#bc4256",
+        219,
+      ],
+      ["M110 153 Q121 153 124 164 Q120 169 116 163 Z", "#df6870", 185],
+      ["M125 166 Q133 158 135 154 Q137 162 130 167 Z", "#8b314a", 171],
+      [
+        "M121 177 Q116 166 108 167 Q109 173 121 177 M122 178 Q127 167 136 168 Q134 174 122 178 Z",
+        "#657853",
+        209,
+      ],
+      ["M119 179 L124 164 L126 164 L121 181 Z", "#507152", 211],
+      [cap, "#b18342", 202],
+      ["M97 32 Q119 27 139 31 Q122 35 98 35 Z", "#e2bb6c", 187],
+      ["M97 44 Q122 48 141 42 L140 46 Q120 52 99 48 Z", "#826139", 177],
+    ];
+    let exported, painting;
+    function setup() {
+      pixelDensity(1);
+      painting = createCanvas(settings.width, settings.height, WEBGL);
+      noLoop();
+    }
+    function draw() {
+      randomSeed(settings.seed);
+      noiseSeed(settings.seed);
+      background(255);
+      const factor = Math.min(width, height) / 240;
+      // Sample each contour more closely at higher detail. Wash opacity and
+      // feathering are independent, so adjusting either preserves the silhouette.
+      function wash(path, color, density) {
+        const outline = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        outline.setAttribute("d", path);
+        const length = outline.getTotalLength();
+        const count = Math.ceil(length / (3.7 - settings.detail * 0.024));
+        const points = Array.from({ length: count }, (_, i) => {
+          const p = outline.getPointAtLength((length * i) / count);
+          return [(p.x - 120) * factor, (p.y - 120) * factor];
+        });
+        brush.noStroke();
+        brush.fillBleed(
+          0.04 + settings.softness * 0.001,
+          "in",
+          null,
+          settings.softness / 100,
+        );
+        brush.fillTexture(0.45, 0.36, false);
+        brush.fill(color, density * (1.15 - settings.transparency * 0.004));
+        brush.polygon(points);
+      }
+      for (const layer of layers) wash(...layer);
+      for (let i = 0; i < Math.round(3 + settings.detail / 10); i++) {
+        const x = 99 + (i * 38) / (2 + Math.round(settings.detail / 10));
+        wash(`M${x} 35 l1.5 0 -.3 8 -1.7 .3 Z`, "#f9e4a2", 177);
+      }
+      requestAnimationFrame(() => {
+        exported = document.createElement("canvas");
+        exported.width = width;
+        exported.height = height;
+        const ctx = exported.getContext("2d");
+        ctx.drawImage(painting.elt, 0, 0, width, height);
+        if (settings.background === "transparent") {
+          ctx.globalCompositeOperation = "destination-in";
+          ctx.translate(width / 2, height / 2);
+          ctx.scale(factor, factor);
+          ctx.translate(-120, -120);
+          ctx.fill(new Path2D(glass + " " + cap));
+        }
+        const button = document.querySelector("#save");
+        button.disabled = false;
+        button.onclick = () => {
+          const a = document.createElement("a");
+          a.download = "saas-syrup-ticket.png";
+          a.href = exported.toDataURL();
+          a.click();
+        };
+      });
+    }
+  </script>
+</html>
