@@ -910,9 +910,9 @@
     grid-area: 1 / 1;
     min-width: 0;
   }
-  .book-phone-outgoing {
+  .book-base > [data-turning-sheet] {
     z-index: 1;
-    transform-origin: left center;
+    transform-origin: var(--ring-axis) center;
   }
   .book-divider-layer {
     left: 0;
@@ -935,7 +935,7 @@
   }
   .book-punches > span {
     position: absolute;
-    left: 9px;
+    left: calc(var(--ring-axis) - 3.5px);
     width: 7px;
     height: 7px;
     margin-top: -3.5px;
@@ -955,17 +955,18 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -20px;
-    width: 36px;
+    left: calc(var(--ring-axis) - 27.5px);
+    width: 32px;
     z-index: 7;
     transform: translateZ(3px);
     pointer-events: none;
-    filter: drop-shadow(0 1px 1px #3b322751);
   }
-  .book-ring-binding > svg {
-    width: 100%;
-    height: 100%;
-    overflow: visible;
+  .book-ring {
+    position: absolute;
+    left: 0;
+    width: 32px;
+    height: 26px;
+    margin-top: -13px;
   }
   .book-folded-pages {
     display: block;
@@ -981,6 +982,7 @@
     pointer-events: none;
   }
   .memory-book {
+    --ring-axis: 12.5px;
     --gutter-gap: 0px;
     --tab-width: 54px;
     --tab-inset: 15px;

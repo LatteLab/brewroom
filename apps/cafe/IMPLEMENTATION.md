@@ -335,3 +335,7 @@ User requested a physical animated scrapbook, superseding the earlier continuous
 - Normalized in-flight page indexes when switching between single pages and spreads, including a turn whose destination is already in the newly visible spread. This prevents invalid page references or a missing animation completion handler during resize.
 - Added two motion regression tests for monotonic full wraps and front/back depth on long chapter fans, and updated the phone endpoint expectations. All 15 tests, lint, TypeScript, production build, and diff checks pass.
 - Reviewed recorded forward/backward turns and chapter jumps in headed Chromium with an iPhone 13 viewport. Verified destination heading focus, sheet/shadow cleanup, instant reduced-motion navigation, 375/390/768px layouts without horizontal overflow, and switching to the 1440px desktop layout during a turn. Confirmed desktop has two joined pages and no ring or punch markup. One mobile turn sampled 130 active frames averaging 8.46ms, with a 16.7ms worst interval on this machine. Physical iOS/Android devices and Safari remain untested; existing development warnings remain. No dependency, commit, push, or deployment was added.
+
+## Mobile scrapbook hinge — 2026-11-21
+
+The single-sheet hinge supersedes the mobile slide and fade. Adjacent turns and chapter jumps use the same rotation around the punch line, with the destination mounted through the handoff. Each brass arch uses fixed-size artwork, with a front tip seated in the punch and a short return behind the paper.

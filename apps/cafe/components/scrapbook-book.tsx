@@ -98,40 +98,61 @@ function PaperPunches() {
 }
 
 function RingBinding() {
-  const metal = useId();
+  const ring = useId();
+  const arch =
+    "M4.2 14.8C1.6 13.4 2.1 8.1 6.7 5.8C12.1 2.9 19.7 4.1 24.1 7.8C26.4 9.6 27.2 11.5 27.4 13";
   return (
     <div className="book-ring-binding" aria-hidden="true">
-      <svg viewBox="0 0 36 640" preserveAspectRatio="none" fill="none">
+      <svg width="0" height="0">
         <defs>
-          <linearGradient id={metal} x1="0" y1="0" x2="0.25" y2="1">
-            <stop stopColor="#f8efcf" />
-            <stop offset=".25" stopColor="#b8a579" />
-            <stop offset=".5" stopColor="#fff8df" />
-            <stop offset=".75" stopColor="#a18c60" />
-            <stop offset="1" stopColor="#6c6049" />
+          <linearGradient
+            id={`${ring}-metal`}
+            gradientUnits="userSpaceOnUse"
+            x1="3"
+            y1="14"
+            x2="26"
+            y2="6"
+          >
+            <stop stopColor="#77694d" />
+            <stop offset=".19" stopColor="#d8cba6" />
+            <stop offset=".35" stopColor="#a99870" />
+            <stop offset=".57" stopColor="#f8efd4" />
+            <stop offset=".79" stopColor="#cebd96" />
+            <stop offset="1" stopColor="#7d7055" />
           </linearGradient>
-        </defs>
-        {ringPositions.map((position) => (
-          <g key={position}>
-            <ellipse
-              cx="18"
-              cy={position * 6.4}
-              rx="15"
-              ry="6.5"
-              stroke="#5f5542"
-              strokeWidth="4.2"
+          <g id={ring} fill="none" strokeLinecap="round">
+            <path
+              d="M4.2 14.8Q7.3 17.3 14.5 15.2"
+              stroke="#827457"
+              strokeWidth="2.3"
             />
-            <ellipse
-              cx="18"
-              cy={position * 6.4}
-              rx="15"
-              ry="6.5"
-              stroke={`url(#${metal})`}
-              strokeWidth="2.8"
+            <path
+              d="M15.5 8.6Q24.5 8.9 27.5 14"
+              stroke="#6d5a36"
+              strokeOpacity=".19"
+              strokeWidth="3.2"
+            />
+            <path d={arch} stroke="#685d48" strokeWidth="3.4" />
+            <path d={arch} stroke={`url(#${ring}-metal)`} strokeWidth="2.5" />
+            <path
+              d="M5.1 7.1C9.6 2.7 18.2 3.5 22.5 6.8"
+              stroke="#fff8df"
+              strokeOpacity=".85"
+              strokeWidth=".7"
             />
           </g>
-        ))}
+        </defs>
       </svg>
+      {ringPositions.map((position) => (
+        <svg
+          key={position}
+          className="book-ring"
+          viewBox="0 0 32 26"
+          style={{ top: `${position}%` }}
+        >
+          <use href={`#${ring}`} />
+        </svg>
+      ))}
     </div>
   );
 }
@@ -393,23 +414,33 @@ export function ScrapbookBook() {
       // Keep the old page fully visible while the real destination prints decode.
       const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
       let active = true;
-      let animation: Animation | undefined;
+      const forward = turn.direction === 1;
+      const sheet = forward ? outgoing : incoming;
+      const duration = 560;
+      const animation = sheet.animate(
+        [
+          { transform: "perspective(1500px) rotateY(0deg)" },
+          { transform: "perspective(1500px) rotateY(-90deg)" },
+        ],
+        {
+          duration,
+          direction: forward ? "normal" : "reverse",
+          easing: "cubic-bezier(.42, 0, .35, 1)",
+          fill: "both",
+        },
+      );
+      // Pose the reverse sheet edge-on before the first paint, even on a cold cache.
+      animation.pause();
+      animation.currentTime = 0;
+      animation.onfinish = finishTurn;
+      let started = false;
       let recovery: number;
       const play = () => {
-        if (!active || animation) return;
+        if (!active || started) return;
         if (motion.matches) return finishTurn();
-        animation = outgoing.animate(
-          [
-            { transform: "none", opacity: 1 },
-            {
-              transform: `translateX(${-turn.direction * 7}%) rotate(${-turn.direction * 1.5}deg)`,
-              opacity: 0,
-            },
-          ],
-          { duration: 340, easing: "ease-in-out", fill: "forwards" },
-        );
-        animation.onfinish = finishTurn;
-        recovery = window.setTimeout(finishTurn, 700);
+        started = true;
+        animation.play();
+        recovery = window.setTimeout(finishTurn, duration + 400);
       };
       // A slow or failed request must not lock navigation.
       const deadline = window.setTimeout(play, 1500);
@@ -425,10 +456,8 @@ export function ScrapbookBook() {
         window.clearTimeout(deadline);
         window.clearTimeout(recovery);
         motion.removeEventListener("change", onPreference);
-        if (animation) {
-          animation.onfinish = null;
-          animation.cancel();
-        }
+        animation.onfinish = null;
+        animation.cancel();
       };
     }
     const sheets = book.current!.querySelectorAll(".book-leaf");
@@ -763,6 +792,12 @@ export function ScrapbookBook() {
                       index === turnTo
                         ? "book-phone-current"
                         : "book-phone-outgoing"
+                    }
+                    data-turning-sheet={
+                      turn &&
+                      index === (turn.direction === 1 ? turnFrom : turnTo)
+                        ? ""
+                        : undefined
                     }
                   >
                     {renderPage(index, "single")}
