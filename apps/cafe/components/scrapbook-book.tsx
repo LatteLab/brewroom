@@ -136,14 +136,6 @@ function RingBinding() {
   );
 }
 
-function PaperReverse() {
-  return (
-    <div className="book-page book-page--reverse" aria-hidden="true">
-      <PaperPunches />
-    </div>
-  );
-}
-
 // Connected hinges deform one continuous sheet; clipping happens only on its faces.
 function PaperStrip({
   index = 0,
@@ -362,11 +354,11 @@ export function ScrapbookBook() {
   }, [turn]);
 
   useEffect(() => {
-    if (!turn) return;
+    if (!turn || !spread) return;
     // Recovery if a background tab or interrupted animation delays completion.
     const timeout = window.setTimeout(finishTurn, TURN_DURATION + 900);
     return () => window.clearTimeout(timeout);
-  }, [turn, finishTurn]);
+  }, [turn, finishTurn, spread]);
 
   useLayoutEffect(() => {
     const body = book.current!;
@@ -386,6 +378,59 @@ export function ScrapbookBook() {
 
   useLayoutEffect(() => {
     if (!turn) return;
+    if (!spread) {
+      const outgoing = book.current!.querySelector<HTMLElement>(
+        ".book-phone-outgoing",
+      );
+      const incoming = book.current!.querySelector<HTMLElement>(
+        ".book-phone-current",
+      )!;
+      if (!outgoing) {
+        finishTurn();
+        return;
+      }
+
+      // Keep the old page fully visible while the real destination prints decode.
+      const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      let active = true;
+      let animation: Animation | undefined;
+      let recovery: number;
+      const play = () => {
+        if (!active || animation) return;
+        if (motion.matches) return finishTurn();
+        animation = outgoing.animate(
+          [
+            { transform: "none", opacity: 1 },
+            {
+              transform: `translateX(${-turn.direction * 7}%) rotate(${-turn.direction * 1.5}deg)`,
+              opacity: 0,
+            },
+          ],
+          { duration: 340, easing: "ease-in-out", fill: "forwards" },
+        );
+        animation.onfinish = finishTurn;
+        recovery = window.setTimeout(finishTurn, 700);
+      };
+      // A slow or failed request must not lock navigation.
+      const deadline = window.setTimeout(play, 1500);
+      Promise.allSettled(
+        Array.from(incoming.querySelectorAll("img"), (img) => img.decode()),
+      ).then(play);
+      const onPreference = () => {
+        if (motion.matches) finishTurn();
+      };
+      motion.addEventListener("change", onPreference);
+      return () => {
+        active = false;
+        window.clearTimeout(deadline);
+        window.clearTimeout(recovery);
+        motion.removeEventListener("change", onPreference);
+        if (animation) {
+          animation.onfinish = null;
+          animation.cancel();
+        }
+      };
+    }
     const sheets = book.current!.querySelectorAll(".book-leaf");
     // Resizing can put the phone turn's destination in the current spread.
     if (!sheets.length) {
@@ -451,21 +496,14 @@ export function ScrapbookBook() {
         );
         add(layer, getStackDepthFrames(before.depth, after.depth));
       });
-    if (spread) {
-      add(
-        base.querySelector(".book-page--left")!,
-        turn.direction === 1 ? frames.baseDeparting : frames.baseReceiving,
-      );
-      add(
-        base.querySelector(".book-page--right")!,
-        turn.direction === 1 ? frames.baseReceiving : frames.baseDeparting,
-      );
-    } else {
-      add(
-        base.querySelector(".book-page--single")!,
-        turn.direction === 1 ? frames.baseReceiving : frames.baseDeparting,
-      );
-    }
+    add(
+      base.querySelector(".book-page--left")!,
+      turn.direction === 1 ? frames.baseDeparting : frames.baseReceiving,
+    );
+    add(
+      base.querySelector(".book-page--right")!,
+      turn.direction === 1 ? frames.baseReceiving : frames.baseDeparting,
+    );
     const shadows = book.current!.querySelector(".book-turn-shadows")!;
     add(
       shadows.querySelector(".book-shadow-receiving > span")!,
@@ -623,7 +661,7 @@ export function ScrapbookBook() {
     turn && turn.direction === 1
       ? turnTo + (spread ? 1 : 0)
       : current + (spread ? 1 : 0);
-  const leaves = turn ? getTurnLeaves(turnFrom, turnTo, spread) : [];
+  const leaves = turn && spread ? getTurnLeaves(turnFrom, turnTo, spread) : [];
   const strips = getTurnStripCount(leaves.length);
   const stack = getBookStackDepths(current, bookPages.length);
   const chapterTabs = chapters.map((item) => {
@@ -711,8 +749,27 @@ export function ScrapbookBook() {
             <span className="book-block-foreedge" />
           </div>
           <div className="book-base" inert={!!turn}>
-            {spread && renderPage(leftBase, "left")}
-            {renderPage(rightBase, spread ? "right" : "single")}
+            {spread ? (
+              <>
+                {renderPage(leftBase, "left")}
+                {renderPage(rightBase, "right")}
+              </>
+            ) : (
+              (turn && turnFrom !== turnTo ? [turnFrom, turnTo] : [turnTo]).map(
+                (index) => (
+                  <div
+                    key={index}
+                    className={
+                      index === turnTo
+                        ? "book-phone-current"
+                        : "book-phone-outgoing"
+                    }
+                  >
+                    {renderPage(index, "single")}
+                  </div>
+                ),
+              )
+            )}
           </div>
           {spread ? (
             <div className="book-binding" aria-hidden="true">
@@ -722,7 +779,7 @@ export function ScrapbookBook() {
           ) : (
             <RingBinding />
           )}
-          {turn && (
+          {turn && spread && (
             <div
               className={`book-turn-shadows book-turn-shadows--${turn.direction === 1 ? "forward" : "backward"}`}
               aria-hidden="true"
@@ -741,9 +798,7 @@ export function ScrapbookBook() {
                 key={index}
                 className={`book-leaf book-leaf--${turn.direction === 1 ? "forward" : "backward"}${leaves.length > 1 ? " book-leaf--bundle" : ""}`}
                 style={{ "--strip-count": strips } as CSSProperties}
-                data-front-page={
-                  (!spread && turn.direction === -1 ? back : front) + 1
-                }
+                data-front-page={front + 1}
                 data-back-page={spread ? back + 1 : undefined}
                 aria-hidden="true"
                 inert
@@ -764,29 +819,15 @@ export function ScrapbookBook() {
                     ) : null,
                   )}
                   front={renderPage(
-                    !spread && turn.direction === -1 ? back : front,
-                    spread
-                      ? turn.direction === 1
-                        ? "right"
-                        : "left"
-                      : "single",
+                    front,
+                    turn.direction === 1 ? "right" : "left",
                     true,
                   )}
-                  back={
-                    spread ? (
-                      renderPage(
-                        back,
-                        spread
-                          ? turn.direction === 1
-                            ? "left"
-                            : "right"
-                          : "single",
-                        true,
-                      )
-                    ) : (
-                      <PaperReverse />
-                    )
-                  }
+                  back={renderPage(
+                    back,
+                    turn.direction === 1 ? "left" : "right",
+                    true,
+                  )}
                 />
               </div>
             ))}
