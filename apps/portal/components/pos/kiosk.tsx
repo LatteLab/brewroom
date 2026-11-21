@@ -12,7 +12,7 @@ import { ConfigurationControls } from './configuration-controls';
 import { RecentLogs } from './recent-logs';
 import styles from './pos.module.css';
 
-export function Kiosk({ event, menu, logs, initialSubmissionId }: { initialSubmissionId: string; event: PosEvent; menu: PosMenuItem[]; logs: PosDrinkLog[] }) {
+export function Kiosk({ event, menu, logs, initialSubmissionId, notice }: { initialSubmissionId: string; event: PosEvent; menu: PosMenuItem[]; logs: PosDrinkLog[]; notice?: React.ReactNode }) {
   const router = useRouter();
   const [currentMenu, setCurrentMenu] = useState(menu);
   const available = currentMenu.filter(item => item.available);
@@ -73,6 +73,7 @@ export function Kiosk({ event, menu, logs, initialSubmissionId }: { initialSubmi
       <div className={styles.headerEvent}><strong>{event.name}</strong><span>{formatPosDate(event.startsAt)} – {formatPosDate(event.endsAt, true)}</span><Link href={`/admin/pos/${event.id}`}>Event dashboard</Link></div>
     </header>
     <div className={styles.pageHeading}><div><h1>Good drinks. <span>Great company.</span></h1><p>One drink per person. Choose their options, then log it directly.</p></div><Link className={styles.textLink} href="/kiosk">Change event</Link></div>
+    {notice}
     <div className={styles.workspace}>
       <section className={styles.menu}>
         <h2><span>01</span> Pick a drink</h2>
