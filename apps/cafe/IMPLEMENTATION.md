@@ -1,5 +1,10 @@
 # Latte Lab website rebuild
 
+## Mobile scrapbook page transitions
+
+Phone turns animate one outgoing page over the mounted destination. This supersedes the segmented mobile ring animation below. Forward turns, backward turns and chapter jumps use the same two-page limit. The destination keeps its loaded images when the outgoing page is removed.
+
+
 ## Scrapbook compositions and digital-camera photos — 2026-11-20
 
 - Reviewed all 52 additions in the Fall Fest and Concord prep digital-camera folder. Selected four Fall Fest images and five Concord prep images. All 69 earlier photos are retained. The album now contains 78 photos, 26 pages and seven chapters.
