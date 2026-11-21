@@ -8,7 +8,7 @@ export type Recipe = {
   preparationTime?: string;
   brewWater?: string;
   updated?: string;
-  image: { src: string; alt: string };
+  image: { src: string; alt: string; ticketSrc?: string };
   ingredientGroups: {
     title?: string;
     ingredients: { quantity: string; item: string }[];
@@ -30,7 +30,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
     kind: "Latte",
     serving: "1 drink",
     image: {
-      src: "/recipes/misugaru-latte.svg",
+      src: "/recipes/watercolor/misugaru-latte.webp",
       alt: "Illustration of a layered latte topped with misugaru cream and golden cereal pieces",
     },
     ingredientGroups: [
@@ -79,7 +79,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
       "Equal parts whisked matcha and cold milk make a vivid green layer that slowly ribbons through the glass.",
     serving: "1 glass",
     image: {
-      src: "/recipes/iced-matcha.svg",
+      src: "/recipes/watercolor/iced-matcha.webp",
       alt: "Glass of green matcha folding into milk beneath ice cubes",
     },
     ingredientGroups: [
@@ -111,7 +111,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
     brewWater: "250 g specified",
     updated: "April 2, 2026",
     image: {
-      src: "/brand/pourover.webp",
+      src: "/recipes/watercolor/pour-over.webp",
       alt: "Latte Lab illustration of a green kettle pouring into a filter dripper and coffee carafe",
     },
     ingredientGroups: [
@@ -165,7 +165,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
       "Bright tonic bubbles rise through a dark layer of espresso. A slice of orange or lemon scents the rim.",
     serving: "1 glass",
     image: {
-      src: "/recipes/espresso-tonic.svg",
+      src: "/recipes/watercolor/espresso-tonic.webp",
       alt: "Tall glass of sparkling tonic with a dark espresso layer and orange slice",
     },
     ingredientGroups: [
@@ -199,7 +199,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
     serving: "1 mug",
     preparationTime: "5 min",
     image: {
-      src: "/recipes/maple-hojicha.svg",
+      src: "/recipes/watercolor/maple-hojicha.webp",
       alt: "Wide ceramic cup of roasted tea with a swirl of maple milk foam",
     },
     ingredientGroups: [
@@ -230,7 +230,8 @@ export const recipes: [Recipe, ...Recipe[]] = [
     kind: "Syrup",
     serving: "Small batch or full syrup bottle",
     image: {
-      src: "/recipes/saas-syrup.svg",
+      src: "/recipes/watercolor/saas-syrup.webp",
+      ticketSrc: "/recipes/watercolor/saas-syrup-ticket.png",
       alt: "Illustration of a bottle of rose-colored syrup with a cream label and brass-colored cap",
     },
     ingredientGroups: [
@@ -279,7 +280,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
     kind: "Topping",
     serving: "1,000 g batch",
     image: {
-      src: "/recipes/caramel-cold-foam.svg",
+      src: "/recipes/watercolor/caramel-cold-foam.webp",
       alt: "Illustration of a green mixing pitcher filled with pale caramel cream",
     },
     ingredientGroups: [
@@ -318,7 +319,7 @@ export const recipes: [Recipe, ...Recipe[]] = [
       "Pull the espresso just before serving. The edges of the scoop melt into the coffee while the center stays cold enough to eat with a spoon.",
     serving: "1 dessert",
     image: {
-      src: "/recipes/vanilla-affogato.svg",
+      src: "/recipes/watercolor/vanilla-affogato.webp",
       alt: "Footed dessert glass holding espresso and a scoop of vanilla ice cream",
     },
     ingredientGroups: [

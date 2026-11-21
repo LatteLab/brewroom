@@ -83,7 +83,7 @@ export function RecipeRail() {
                     </span>
                     <Image
                       className={styles.ticketImage}
-                      src={item.image.src}
+                      src={item.image.ticketSrc ?? item.image.src}
                       width={120}
                       height={120}
                       sizes="120px"
