@@ -908,6 +908,8 @@
   .book-phone-current,
   .book-phone-outgoing {
     grid-area: 1 / 1;
+    /* Keep each page’s raised prints inside its own stacking context. */
+    z-index: 0;
     min-width: 0;
   }
   .book-base > [data-turning-sheet] {
