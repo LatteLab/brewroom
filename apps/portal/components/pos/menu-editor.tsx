@@ -6,8 +6,9 @@ import { GripVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { removePosMenuItemAction, reorderPosMenuAction, savePosMenuItemAction } from '@/app/actions/pos';
 import { defaultMenuOptions, iceLevels, milks, syrups, temperatures, type MenuOptions } from '@/lib/validations/pos';
-import type { PosMenuItem } from '@/lib/db/schema';
+import type { InventoryItem, PosMenuIngredient, PosMenuItem } from '@/lib/db/schema';
 import { ConfigurationControls } from './configuration-controls';
+import { MenuIngredients } from './menu-ingredients';
 import styles from './pos.module.css';
 
 function Choices<T extends string | number>({ label, all, values, change }: { label: string; all: readonly T[]; values: T[]; change: (values: T[]) => void }) {
@@ -20,7 +21,8 @@ function normalizeDefaults(options: MenuOptions): MenuOptions {
   const ice = options.defaults.temperature === 'Iced' && options.iceLevels.includes(options.defaults.ice) ? options.defaults.ice : options.iceLevels[0] ?? 'Full';
   return { ...options, defaults: temperature === 'Hot' ? { temperature, milk, syrup } : { temperature, milk, syrup, ice } };
 }
-function MenuItemForm({ eventId, item }: { eventId: string; item?: PosMenuItem }) {
+type Inventory = { stock: InventoryItem[]; ingredients: PosMenuIngredient[] };
+function MenuItemForm({ eventId, item, inventory }: { eventId: string; item?: PosMenuItem; inventory?: Inventory }) {
   const router = useRouter(); const [name, setName] = useState(item?.name ?? ''); const [available, setAvailable] = useState(item?.available ?? true);
   const [options, setOptions] = useState<MenuOptions>(item?.options ?? structuredClone(defaultMenuOptions));
   const [pending, startTransition] = useTransition(); const [message, setMessage] = useState(''); const [error, setError] = useState('');
@@ -46,19 +48,19 @@ function MenuItemForm({ eventId, item }: { eventId: string; item?: PosMenuItem }
         });
       }}>Remove drink</button>}
     </div>
-  </form></details>;
+  </form>{item && inventory && <MenuIngredients eventId={eventId} menuItemId={item.id} stock={inventory.stock} lines={inventory.ingredients.filter(line => line.menuItemId === item.id)} />}</details>;
 }
-function SortableDrink({ eventId, item, pending, move, save }: { eventId: string; item: PosMenuItem; pending: boolean; move: (direction: -1 | 1) => void; save: () => void }) {
+function SortableDrink({ eventId, item, inventory, pending, move, save }: { eventId: string; item: PosMenuItem; inventory: Inventory; pending: boolean; move: (direction: -1 | 1) => void; save: () => void }) {
   const controls = useDragControls();
   return <Reorder.Item value={item} className={styles.sortableDrink} dragListener={false} dragControls={controls} onDragEnd={save}>
     <button type="button" className={styles.dragHandle} aria-disabled={pending} aria-label={`Reorder ${item.name}`} aria-describedby="menu-reorder-help" onPointerDown={event => { if (!pending) controls.start(event); }} onKeyDown={event => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
       event.preventDefault(); move(event.key === 'ArrowUp' ? -1 : 1);
     }}><GripVertical size={18} aria-hidden="true" /></button>
-    <MenuItemForm key={item.version} eventId={eventId} item={item} />
+    <MenuItemForm key={item.version} eventId={eventId} item={item} inventory={inventory} />
   </Reorder.Item>;
 }
-export function MenuEditor({ eventId, menu }: { eventId: string; menu: PosMenuItem[] }) {
+export function MenuEditor({ eventId, menu, inventory }: { eventId: string; menu: PosMenuItem[]; inventory: Inventory }) {
   const router = useRouter();
   const [items, setItems] = useState(menu);
   const [previousMenu, setPreviousMenu] = useState(menu);
@@ -87,7 +89,7 @@ export function MenuEditor({ eventId, menu }: { eventId: string; menu: PosMenuIt
     {items.length === 0 && <p className={styles.empty}>This menu is empty. Add a drink below to start taking orders.</p>}
     <p className={styles.muted}>Remove a drink to take it off this event’s menu and kiosk. Past orders and analytics are kept.</p>
     <p id="menu-reorder-help" className={styles.muted}>Drag a drink’s handle to change its kiosk position. With a handle focused, use the up and down arrow keys. Order saves automatically.</p>
-    <Reorder.Group axis="y" values={items} onReorder={setItems} className={styles.menuOrder} aria-label="Drinks in kiosk order">{items.map(item => <SortableDrink key={item.id} eventId={eventId} item={item} pending={pending} move={direction => move(item.id, direction)} save={() => save()} />)}</Reorder.Group>
+    <Reorder.Group axis="y" values={items} onReorder={setItems} className={styles.menuOrder} aria-label="Drinks in kiosk order">{items.map(item => <SortableDrink key={item.id} eventId={eventId} item={item} inventory={inventory} pending={pending} move={direction => move(item.id, direction)} save={() => save()} />)}</Reorder.Group>
     <p role="status" className={styles.muted}>{pending ? 'Saving menu order…' : message}</p>{error && <p role="alert" className={styles.error}>{error}</p>}
     <MenuItemForm eventId={eventId} />
   </section>;

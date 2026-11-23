@@ -60,7 +60,7 @@ See [CLAUDE.md](CLAUDE.md) for application rules, the [documentation index](docs
 
 ## POS order logging and drink analytics
 
-POS uses separate `pos_` tables and is available only to admins. Admins create events and menus at `/admin/pos`, log received orders at `/kiosk`, review analytics, export CSV, and correct any entry. Membership alone does not grant POS access. There is no cashier email allowlist. POS does not replace event registration or track inventory.
+POS uses separate `pos_` tables and is available only to admins. Admins create events and menus at `/admin/pos`, log received orders at `/kiosk`, review analytics, export CSV, and correct any entry. Membership alone does not grant POS access. There is no cashier email allowlist. POS does not replace event registration. Admins keep supply amounts at `/admin/inventory` and list ingredients per menu drink; the event page estimates usage from logged drinks without changing stock.
 
 New events start with an empty menu; add each event's drinks manually. Existing menus are preserved. The main POS page combines drink totals and configuration breakdowns across all events and shows counts beside each event. Exact matching recorded drink names are combined; orders are counted separately for each event. Voided entries do not count, and corrections replace their originals.
 

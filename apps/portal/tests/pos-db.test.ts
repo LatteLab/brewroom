@@ -13,6 +13,7 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) || target.pat
 process.env.DATABASE_URL = testUrl; process.env.DATABASE_SSL = 'disable';
 const client = postgres(testUrl, { ssl: false, max: 5 });
 let queries: typeof import('../lib/db/pos-queries');
+let inventory: typeof import('../lib/db/inventory-queries');
 let database: typeof import('../lib/db/index');
 const admin = { id: 'pos-test-admin', email: 'pos-admin@example.invalid', isAdmin: true };
 const otherAdmin = { id: 'pos-test-admin-2', email: 'pos-admin-2@example.invalid', isAdmin: true };
@@ -20,11 +21,11 @@ const nonAdmin = { id: 'pos-test-member', email: 'member@example.invalid', isAdm
 const outsider = { id: 'outsider', email: 'no-access@example.invalid', isAdmin: false };
 
 before(async () => {
-  await client.unsafe('DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
+  await client.unsafe('DROP TABLE IF EXISTS pos_menu_ingredients; DROP TABLE IF EXISTS inventory_items; DROP TABLE IF EXISTS pos_drink_logs; DROP TABLE IF EXISTS pos_event_menu_items; DROP TABLE IF EXISTS pos_events; DROP TABLE IF EXISTS users;');
   await client.unsafe(`CREATE TABLE users (id text PRIMARY KEY, email text UNIQUE); INSERT INTO users VALUES ('pos-test-admin','pos-admin@example.invalid'),('pos-test-admin-2','pos-admin-2@example.invalid');`);
   const migrations = (await readdir(new URL('../lib/db/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
   assert(migrations.length); for (const migration of migrations) await client.unsafe(await readFile(new URL(`../lib/db/migrations/${migration}`, import.meta.url), 'utf8'));
-  queries = await import('../lib/db/pos-queries'); database = await import('../lib/db/index');
+  queries = await import('../lib/db/pos-queries'); inventory = await import('../lib/db/inventory-queries'); database = await import('../lib/db/index');
 });
 after(async () => { await database?.db.$client.end(); await client.end(); });
 async function fixture() {
@@ -286,4 +287,28 @@ test('menu reordering persists atomically, rejects stale/cross-event lists and k
   await assert.rejects(queries.reorderPosMenu(admin, { ...request, itemIds: expectedItemIds }), /menu changed/);
   const saved = await queries.savePosMenuItem(admin, { eventId: event.id, id: added.id, expectedVersion: added.version, name: 'Renamed new drink', options: added.options, available: true });
   assert.equal(saved.sortOrder, 2);
+});
+
+test('menu ingredients keep the kiosk menu version, guard stock deletion, and go with their event', async () => {
+  const { event, item } = await fixture();
+  for (const actor of [nonAdmin, outsider]) {
+    await assert.rejects(inventory.listInventoryItems(actor), /Administrator/);
+    await assert.rejects(inventory.createInventoryItem(actor, { name: 'Nope', unit: 'g', onHand: 1, lowAt: 0 }), /Administrator/);
+    await assert.rejects(inventory.saveMenuIngredients(actor, { eventId: event.id, menuItemId: item.id, ingredients: [] }), /Administrator/);
+  }
+  const milk = await inventory.createInventoryItem(admin, { name: `Oat milk ${randomUUID()}`, unit: 'ml', onHand: 1000, lowAt: 500 });
+  await assert.rejects(inventory.createInventoryItem(admin, { name: milk.name, unit: 'ml', onHand: 0, lowAt: 0 }), /already exists/);
+  const counted = await inventory.updateInventoryCount(admin, { id: milk.id, expectedVersion: milk.version, onHand: 800.5, lowAt: 500 });
+  assert.equal(counted.onHand, 800.5);
+  await assert.rejects(inventory.updateInventoryCount(admin, { id: milk.id, expectedVersion: milk.version, onHand: 1, lowAt: 0 }), /changed/);
+  await inventory.saveMenuIngredients(admin, { eventId: event.id, menuItemId: item.id, ingredients: [{ itemId: milk.id, quantity: 200, appliesWhen: 'oat', scalesWithSyrup: false }] });
+  await inventory.saveMenuIngredients(admin, { eventId: event.id, menuItemId: item.id, ingredients: [{ itemId: milk.id, quantity: 180, appliesWhen: 'oat', scalesWithSyrup: false }] });
+  const lines = await inventory.getEventIngredients(admin, event.id);
+  assert.equal(lines.length, 1); assert.equal(lines[0].quantity, 180);
+  const [menuItem] = (await queries.getPosMenu(admin, event.id)).filter(row => row.id === item.id);
+  assert.equal(menuItem.version, item.version);
+  await assert.rejects(inventory.deleteInventoryItem(admin, { id: milk.id }), /menu drink uses/);
+  await queries.deletePosEvent(admin, { eventId: event.id, nameConfirmation: event.name });
+  assert.deepEqual(await inventory.getEventIngredients(admin, event.id), []);
+  await inventory.deleteInventoryItem(admin, { id: milk.id });
 });

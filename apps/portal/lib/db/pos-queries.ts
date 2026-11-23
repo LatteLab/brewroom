@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, getTableColumns, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './index';
-import { posEvents, posMenuItems, posDrinkLogs, type PosDrinkLog } from './schema';
+import { posEvents, posMenuItems, posDrinkLogs, posMenuIngredients, type PosDrinkLog } from './schema';
 import { PosError, assertPosAdmin, buildDrinkBreakdowns, easternInstant, type PosActor } from '../pos';
 import { configurationAllowed, configurationSchema, correctionInputSchema, deleteEventSchema, eventInputSchema, logInputSchema, menuInputSchema, removeMenuItemSchema, reorderMenuSchema, voidInputSchema, type LogInput } from '../validations/pos';
 
@@ -45,6 +45,7 @@ export async function deletePosEvent(actor: PosActor, input: unknown) {
     if (!event) return;
     if (event.name !== value.nameConfirmation) throw new PosError('Type the current event name to confirm deletion. Refresh if its name changed.');
     await tx.delete(posDrinkLogs).where(eq(posDrinkLogs.eventId, event.id));
+    await tx.delete(posMenuIngredients).where(inArray(posMenuIngredients.menuItemId, tx.select({ id: posMenuItems.id }).from(posMenuItems).where(eq(posMenuItems.eventId, event.id))));
     await tx.delete(posMenuItems).where(eq(posMenuItems.eventId, event.id));
     await tx.delete(posEvents).where(eq(posEvents.id, event.id));
   });

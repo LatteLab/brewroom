@@ -143,7 +143,29 @@
 .denied { max-width:560px; margin:80px auto; padding:28px; background:#f7f6ef; border:1px solid #dfe3d5; border-radius:12px; color:#283c32; }
 .denied h1 { font-size:24px; font-weight:600; margin-bottom:12px; }
 .denied p { font-size:14px; line-height:1.8; margin-bottom:20px; }
+.srOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.tableScroll { overflow-x:auto; margin-top:12px; }
+.stockTable { width:100%; border-collapse:collapse; font-size:13px; min-width:520px; }
+.stockTable th,.stockTable td { text-align:left; padding:10px 8px; border-bottom:1px solid #e0e4d8; vertical-align:middle; }
+.stockTable thead th { font-size:11px; font-weight:550; color:#697264; }
+.stockTable tbody th { font-weight:550; }
+.cellInput { display:flex; align-items:center; gap:6px; }
+.cellInput input { width:96px; min-height:40px; padding:8px 10px; background:#fffefa; border:1px solid #d8ddcf; border-radius:7px; font-size:14px; color:#283c32; }
+.cellInput small { color:#697264; font-size:11px; }
+.rowError { display:block; color:#963c2b; font-size:11px; font-weight:400; margin-top:4px; }
+.statusOut,.statusLow,.statusOK { display:inline-block; border-radius:99px; padding:3px 10px; font-size:11px; font-weight:550; }
+.statusOut { background:#fbe3da; color:#943b29; }
+.statusLow { background:#f8edcf; color:#7a5a12; }
+.statusOK { background:#e5eedb; color:#3f5a35; }
+.addStock { margin-top:28px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); max-width:none; align-items:end; }
+.addStock h3,.addStock .error { grid-column:1/-1; margin:0; }
+.ingredients { padding:4px 16px 20px; border-top:1px solid #e6e8df; display:grid; gap:12px; }
+.ingredients h4 { font-size:13px; font-weight:600; margin-top:12px; }
+.ingredientRow { display:grid; grid-template-columns:minmax(140px,2fr) minmax(90px,1fr) minmax(120px,1.3fr) auto auto; gap:10px; align-items:end; border:0; padding:0; margin:0; }
+.ingredientRow label { font-size:12px; font-weight:550; }
+.ingredientRow select,.ingredientRow input:not([type=checkbox]) { display:block; width:100%; min-height:44px; padding:10px 12px; background:#fffefa; border:1px solid #d8ddcf; border-radius:7px; font-size:14px; font-weight:400; margin-top:6px; color:#283c32; }
+.ingredientRow .checkbox { display:flex; align-items:center; gap:8px; min-height:44px; }
 @media(max-width:1100px) { .shell{padding:0 25px}.workspace{gap:18px;grid-template-columns:minmax(180px,.85fr) minmax(245px,1.1fr) minmax(235px,1fr)}.receipt{padding:17px}.stats{grid-template-columns:1fr 1fr}.headerEvent{max-width:52%;text-align:right}.brand{font-size:24px} }
 @media(max-width:850px) { .workspace{grid-template-columns:minmax(0,1fr) minmax(260px,1fr)}.menu{grid-column:1/-1}.drinkList{grid-template-columns:repeat(2,minmax(0,1fr))}.drinkArt{height:90px}.drinkArt>svg{height:60px}.pageHeading h1{font-size:26px}.pageHeading{align-items:start}.breakdownGrid{grid-template-columns:1fr 1fr} }
-@media(max-width:580px) { .shell{padding:0 19px}.header{min-height:90px}.headerEvent span{font-size:9px}.headerEvent strong{font-size:11px}.brand{font-size:22px}.brandMark{width:35px;height:35px}.brand small{font-size:6px}.workspace{display:block}.customize,.orderPanel{margin-top:28px}.pageHeading{display:block}.pageHeading h1{font-size:27px}.pageHeading h1 span{display:block}.pageHeading p{line-height:1.8}.pageHeading>.textLink{display:inline-block;margin-top:13px}.drinkCard strong{font-size:12px;padding:12px 10px 5px}.drinkCard small{font-size:9px;padding:0 10px 13px}.drinkArt{height:110px}.drinkArt>svg{height:65px}.receipt{padding:20px}.kerb input{font-size:16px}.adminPage{padding:22px 17px}.adminHeader,.eventCard,.sectionTop{flex-direction:column;align-items:stretch}.adminHeader h1{font-size:25px}.twoColumns{grid-template-columns:1fr}.breakdownGrid{grid-template-columns:1fr}.logHeading{flex-direction:column;gap:4px}.stats>div{padding:12px}.stats strong{font-size:25px}.eventCard{display:flex}.choices button{min-height:48px} }
+@media(max-width:580px) { .shell{padding:0 19px}.header{min-height:90px}.headerEvent span{font-size:9px}.headerEvent strong{font-size:11px}.brand{font-size:22px}.brandMark{width:35px;height:35px}.brand small{font-size:6px}.workspace{display:block}.customize,.orderPanel{margin-top:28px}.pageHeading{display:block}.pageHeading h1{font-size:27px}.pageHeading h1 span{display:block}.pageHeading p{line-height:1.8}.pageHeading>.textLink{display:inline-block;margin-top:13px}.drinkCard strong{font-size:12px;padding:12px 10px 5px}.drinkCard small{font-size:9px;padding:0 10px 13px}.drinkArt{height:110px}.drinkArt>svg{height:65px}.receipt{padding:20px}.kerb input{font-size:16px}.adminPage{padding:22px 17px}.adminHeader,.eventCard,.sectionTop{flex-direction:column;align-items:stretch}.adminHeader h1{font-size:25px}.twoColumns{grid-template-columns:1fr}.breakdownGrid{grid-template-columns:1fr}.logHeading{flex-direction:column;gap:4px}.stats>div{padding:12px}.stats strong{font-size:25px}.eventCard{display:flex}.choices button{min-height:48px}.ingredientRow{grid-template-columns:1fr 1fr;padding-bottom:12px;border-bottom:1px solid #e6e8df}.ingredientRow>label:first-of-type{grid-column:1/-1}.stockTable{min-width:0;font-size:12px}.stockTable th,.stockTable td{padding:8px 3px}.cellInput input{width:58px;padding:8px 6px}.cellInput small{display:none}.stockTable .danger{min-height:36px;padding:6px 8px;font-size:12px}.statusOut,.statusLow,.statusOK{padding:3px 7px} }
 @media(prefers-reduced-motion:reduce) { .kiosk *{scroll-behavior:auto} }
